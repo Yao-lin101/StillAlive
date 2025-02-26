@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>在干嘛？ - 邮箱验证码</title>
+    <style>
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+            font-family: 'Helvetica Neue', Arial, sans-serif;
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .code {
+            text-align: center;
+            font-size: 32px;
+            font-weight: bold;
+            color: #007AFF;  /* iOS 风格的蓝色 */
+            margin: 30px 0;
+            letter-spacing: 5px;
+            padding: 15px;
+            background-color: #F5F7FA;  /* 浅灰色背景 */
+            border-radius: 8px;
+            display: inline-block;
+            min-width: 200px;
+        }
+        .code-container {
+            text-align: center;
+        }
+        .info {
+            color: #666;
+            line-height: 1.6;
+        }
+        .footer {
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 1px solid #eee;
+            color: #999;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h2>在干嘛？ 邮箱验证</h2>
+        </div>
+        
+        <div class="content">
+            <p>您好！</p>
+            <p class="info">您正在进行邮箱验证，验证码为：</p>
+            <div class="code-container">
+                <div class="code">{{ verify_code }}</div>
+            </div>
+            <p class="info">
+                此验证码将在 {{ valid_minutes }} 分钟内有效，请尽快完成验证。<br>
+                如果这不是您的操作，请忽略此邮件。
+            </p>
+        </div>
+        
+        <div class="footer">
+            <p>此邮件由系统自动发送，请勿回复。</p>
+            <p>© {% now "Y" %} 在干嘛？. All rights reserved.</p>
+        </div>
+    </div>
+</body>
+</html> 

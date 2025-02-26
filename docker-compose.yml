@@ -1,0 +1,66 @@
+services:
+  web:
+    build: 
+      context: .
+      dockerfile: Dockerfile
+    container_name: smtx_web
+    restart: unless-stopped
+    command: gunicorn config.wsgi:application --config=/app/gunicorn.conf.py --worker-class=sync
+    volumes:
+      - .:/app
+      - static_volume:/app/staticfiles
+      - media_volume:/app/media
+      - ./logs:/app/logs
+      - ./.well-known:/www/wwwroot/smtx/.well-known
+    expose:
+      - 8000
+    env_file:
+      - .env
+    environment:
+      - REDIS_URL=redis://redis:6379/1
+      - REDIS_HOST=redis
+    depends_on:
+      - db
+      - redis
+    networks:
+      - smtx_network
+
+  db:
+    image: mysql:8.0
+    container_name: smtx_db
+    restart: unless-stopped
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./mysql:/docker-entrypoint-initdb.d
+    ports:
+      - "3306:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD}
+      MYSQL_DATABASE: ${DB_NAME}
+    networks:
+      - smtx_network
+    command: --default-authentication-plugin=mysql_native_password
+
+  redis:
+    image: redis:7.0
+    container_name: smtx_redis
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+    networks:
+      - smtx_network
+
+volumes:
+  mysql_data:
+    name: smtx_mysql_data
+  redis_data:
+    name: smtx_redis_data
+  static_volume:
+    name: smtx_static_volume
+  media_volume:
+    name: smtx_media_volume
+
+networks:
+  smtx_network:
+    name: smtx_network
+    external: true 
