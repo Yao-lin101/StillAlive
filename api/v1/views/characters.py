@@ -57,6 +57,23 @@ class CharacterViewSet(viewsets.ModelViewSet):
             'new_code': character.display_code
         })
 
+    @action(detail=True, methods=['post'])
+    def update_status(self, request, pk=None):
+        """更新角色的激活状态"""
+        character = self.get_object()
+        is_active = request.data.get('is_active')
+        if is_active is None:
+            return Response(
+                {'error': '缺少 is_active 参数'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        character.is_active = is_active
+        character.save()
+        return Response({
+            'is_active': character.is_active
+        })
+
 class CharacterDisplayView(generics.RetrieveAPIView):
     """公开访问的角色展示视图"""
     queryset = Character.objects.filter(is_active=True)
