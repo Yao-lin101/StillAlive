@@ -3,6 +3,7 @@ import secrets
 import string
 from django.db import models
 from django.conf import settings
+from django.utils import timezone
 
 def character_avatar_path(instance, filename):
     # 文件将被上传到 MEDIA_ROOT/avatars/user_<uid>/character_<uid>/<filename>
@@ -29,6 +30,39 @@ class Character(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     is_active = models.BooleanField(default=True)
+    
+    # 添加状态配置字段
+    status_config = models.JSONField(default=dict, blank=True, help_text="""
+    状态配置示例：
+    {
+        "vital_signs": {
+            "ele": {
+                "label": "当前电量",
+                "suffix": "%",
+                "color": {
+                    "type": "threshold",
+                    "rules": [
+                        {"value": 20, "color": "red"},
+                        {"value": 50, "color": "yellow"},
+                        {"default": "green"}
+                    ]
+                }
+            },
+            "temp": {
+                "label": "体温",
+                "suffix": "°C",
+                "color": {
+                    "type": "range",
+                    "rules": [
+                        {"min": 35, "max": 37.2, "color": "green"},
+                        {"min": 37.3, "max": 38, "color": "yellow"},
+                        {"default": "red"}
+                    ]
+                }
+            }
+        }
+    }
+    """)
 
     class Meta:
         ordering = ['-created_at']
@@ -55,4 +89,31 @@ class Character(models.Model):
         if not self.pk or kwargs.pop('regenerate_secret_key', False):
             self.secret_key = uuid.uuid4()
         super().save(*args, **kwargs)
+
+class CharacterStatus(models.Model):
+    character = models.ForeignKey(Character, on_delete=models.CASCADE, related_name='statuses')
+    timestamp = models.DateTimeField(auto_now_add=True)
+    status_type = models.CharField(max_length=50)
+    data = models.JSONField()
+    
+    class Meta:
+        ordering = ['-timestamp']
+        indexes = [
+            models.Index(fields=['character', 'status_type', 'timestamp']),
+        ]
+        verbose_name = '角色状态'
+        verbose_name_plural = '角色状态'
+        
+    @classmethod
+    def get_latest_status(cls, character):
+        """获取角色所有类型的最新状态"""
+        latest_by_type = cls.objects.filter(
+            character=character
+        ).values('status_type').annotate(
+            latest_id=models.Max('id')
+        )
+        
+        return cls.objects.filter(
+            id__in=[item['latest_id'] for item in latest_by_type]
+        )
 

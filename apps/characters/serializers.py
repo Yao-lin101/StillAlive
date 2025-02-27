@@ -1,6 +1,6 @@
 from rest_framework import serializers
 from django.conf import settings
-from .models import Character
+from .models import Character, CharacterStatus
 
 class CharacterSerializer(serializers.ModelSerializer):
     class Meta:
@@ -13,7 +13,8 @@ class CharacterSerializer(serializers.ModelSerializer):
             'display_code',
             'created_at', 
             'updated_at', 
-            'is_active'
+            'is_active',
+            'status_config'
         ]
         read_only_fields = ['uid', 'display_code', 'created_at', 'updated_at']
 
@@ -39,5 +40,24 @@ class CharacterDisplaySerializer(serializers.ModelSerializer):
     """用于公开展示的角色序列化器"""
     class Meta:
         model = Character
-        fields = ['name', 'avatar', 'bio']
+        fields = ['name', 'avatar', 'bio', 'status_config']
         read_only_fields = fields 
+
+class CharacterStatusSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = CharacterStatus
+        fields = ['status_type', 'data', 'timestamp']
+        read_only_fields = ['timestamp']
+
+class CharacterStatusUpdateSerializer(serializers.Serializer):
+    type = serializers.CharField(max_length=50)
+    data = serializers.JSONField()
+
+class CharacterStatusResponseSerializer(serializers.Serializer):
+    status = serializers.CharField()  # online/offline
+    last_updated = serializers.DateTimeField(allow_null=True)
+    status_data = serializers.DictField(
+        child=serializers.DictField(
+            child=serializers.JSONField()
+        )
+    ) 

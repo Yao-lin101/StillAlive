@@ -1,11 +1,17 @@
 from rest_framework import viewsets, status, generics
-from rest_framework.decorators import action
+from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from django.shortcuts import get_object_or_404
+from django.utils import timezone
+from datetime import timedelta
 import logging
-from apps.characters.models import Character
-from apps.characters.serializers import CharacterSerializer, CharacterDetailSerializer, CharacterDisplaySerializer
+
+from apps.characters.models import Character, CharacterStatus
+from apps.characters.serializers import (
+    CharacterSerializer, CharacterDetailSerializer, CharacterDisplaySerializer,
+    CharacterStatusUpdateSerializer, CharacterStatusResponseSerializer
+)
 
 logger = logging.getLogger(__name__)
 
@@ -98,4 +104,87 @@ class CharacterDisplayView(generics.RetrieveAPIView):
             return character
         except Character.DoesNotExist:
             logger.info(f"No character found with display_code: {code}")
-            raise Character.DoesNotExist("找不到该角色") 
+            raise Character.DoesNotExist("找不到该角色")
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def update_character_status(request):
+    """通过快捷指令更新角色状态"""
+    try:
+        # 从请求头获取秘钥
+        secret_key = request.headers.get('X-Character-Key')
+        if not secret_key:
+            return Response(
+                {'error': '缺少认证秘钥'},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+
+        # 验证请求数据
+        serializer = CharacterStatusUpdateSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(
+                serializer.errors,
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # 验证 secret_key
+        character = get_object_or_404(Character, secret_key=secret_key)
+        
+        # 创建新状态记录
+        CharacterStatus.objects.create(
+            character=character,
+            status_type=serializer.validated_data['type'],
+            data=serializer.validated_data['data']
+        )
+
+        return Response({'status': 'success'})
+    except Exception as e:
+        logger.error(f"更新状态失败: {str(e)}")
+        return Response(
+            {'error': str(e)},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def get_character_status(request, code):
+    """获取角色的最新状态"""
+    try:
+        character = get_object_or_404(Character, display_code=code)
+        
+        # 获取所有类型的最新状态
+        latest_statuses = CharacterStatus.get_latest_status(character)
+        
+        # 将状态数据按类型组织
+        status_data = {}
+        last_updated = None
+        
+        for status in latest_statuses:
+            status_data[status.status_type] = {
+                'data': status.data,
+                'updated_at': status.timestamp
+            }
+            # 使用最新的高频数据时间作为在线状态判断
+            if status.status_type == 'vital_signs':
+                last_updated = status.timestamp
+
+        # 如果最后更新时间在15分钟内，认为是在线状态
+        is_online = (
+            last_updated and 
+            timezone.now() - last_updated < timedelta(minutes=15)
+        )
+
+        response_data = {
+            'status': 'online' if is_online else 'offline',
+            'last_updated': last_updated,
+            'status_data': status_data
+        }
+
+        serializer = CharacterStatusResponseSerializer(response_data)
+        return Response(serializer.data)
+    except Exception as e:
+        logger.error(f"获取状态失败: {str(e)}")
+        return Response(
+            {'error': str(e)},
+            status=status.HTTP_400_BAD_REQUEST
+        ) 
