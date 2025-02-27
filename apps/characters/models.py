@@ -19,10 +19,11 @@ class Character(models.Model):
         db_column='user_uid'
     )
     name = models.CharField(max_length=50)
-    avatar = models.ImageField(
-        upload_to=character_avatar_path,
+    avatar = models.URLField(
+        max_length=500,
         null=True,
-        blank=True
+        blank=True,
+        help_text='角色头像URL地址'
     )
     bio = models.TextField(max_length=500, blank=True)
     secret_key = models.UUIDField(default=uuid.uuid4, unique=True)
