@@ -47,19 +47,15 @@ class Character(models.Model):
                         {"default": "green"}
                     ]
                 }
-            },
-            "temp": {
-                "label": "体温",
-                "suffix": "°C",
-                "color": {
-                    "type": "range",
-                    "rules": [
-                        {"min": 35, "max": 37.2, "color": "green"},
-                        {"min": 37.3, "max": 38, "color": "yellow"},
-                        {"default": "red"}
-                    ]
-                }
             }
+        },
+        "display": {
+            "default_message": "状态良好",
+            "timeout_messages": [
+                {"hours": 1, "message": "可能在摸鱼"},
+                {"hours": 24, "message": "已经失联一天了"},
+                {"hours": 168, "message": "已经一周没有消息了"}
+            ]
         }
     }
     """)
