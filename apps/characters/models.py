@@ -56,6 +56,9 @@ class Character(models.Model):
                 {"hours": 24, "message": "已经失联一天了"},
                 {"hours": 168, "message": "已经一周没有消息了"}
             ]
+        },
+        "theme": {
+            "background_url": "https://example.com/bg.jpg"
         }
     }
     """)
