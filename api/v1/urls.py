@@ -2,14 +2,14 @@ from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from rest_framework_simplejwt.views import TokenRefreshView
 from .views import users
-from .views.users import PrivacyPolicyView, TermsOfServiceView, TechnicalSupportView
+from .views import characters
 
 # 创建路由器
 router = DefaultRouter()
 
 # 注册视图集
 router.register(r'users', users.UserViewSet, basename='user')
-
+router.register(r'characters', characters.CharacterViewSet, basename='character')
 
 urlpatterns = [
     # JWT 认证
