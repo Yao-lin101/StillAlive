@@ -1,8 +1,13 @@
 from rest_framework import serializers
 from django.conf import settings
 from .models import Character, CharacterStatus
+import logging
+
+logger = logging.getLogger(__name__)
 
 class CharacterSerializer(serializers.ModelSerializer):
+    status_config = serializers.JSONField(required=False, allow_null=True)
+    
     class Meta:
         model = Character
         fields = [
@@ -35,6 +40,23 @@ class CharacterDetailSerializer(CharacterSerializer):
     
     class Meta(CharacterSerializer.Meta):
         fields = CharacterSerializer.Meta.fields + ['secret_key']
+
+    def validate_status_config(self, value):
+        """验证状态配置数据"""
+        try:
+            if not isinstance(value, dict):
+                raise serializers.ValidationError("状态配置必须是一个对象")
+            
+            if 'vital_signs' not in value:
+                raise serializers.ValidationError("状态配置必须包含 vital_signs 字段")
+            
+            vital_signs = value['vital_signs']
+            if not isinstance(vital_signs, dict):
+                raise serializers.ValidationError("vital_signs 必须是一个对象")
+            
+            return value
+        except Exception as e:
+            raise serializers.ValidationError(str(e))
 
 class CharacterDisplaySerializer(serializers.ModelSerializer):
     """用于公开展示的角色序列化器"""

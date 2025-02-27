@@ -30,7 +30,8 @@ class CharacterViewSet(viewsets.ModelViewSet):
     
     def get_serializer_class(self):
         """根据操作类型返回不同的序列化器"""
-        if self.action in ['retrieve', 'create']:
+        if self.action in ['retrieve', 'update', 'partial_update', 'create']:
+            logger.info(f"Using CharacterDetailSerializer for action: {self.action}")
             return CharacterDetailSerializer
         return CharacterSerializer
     
@@ -79,6 +80,15 @@ class CharacterViewSet(viewsets.ModelViewSet):
         return Response({
             'is_active': character.is_active
         })
+
+    def update(self, request, *args, **kwargs):
+        """更新角色信息"""
+        try:
+            response = super().update(request, *args, **kwargs)
+            return response
+        except Exception as e:
+            logger.error(f"Error updating character {kwargs.get('pk')}: {str(e)}")
+            return Response({"detail": str(e)}, status=400)
 
 class CharacterDisplayView(generics.RetrieveAPIView):
     """公开访问的角色展示视图"""
