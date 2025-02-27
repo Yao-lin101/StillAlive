@@ -18,9 +18,16 @@ class CharacterSerializer(serializers.ModelSerializer):
         read_only_fields = ['uid', 'display_code', 'created_at', 'updated_at']
 
     def create(self, validated_data):
+        # 确保创建时 is_active 为 True
+        validated_data['is_active'] = True
         # 确保当前用户被设置为角色的所有者
         validated_data['user'] = self.context['request'].user
-        return super().create(validated_data)
+        # 生成 display_code
+        instance = super().create(validated_data)
+        if not instance.display_code:
+            instance.display_code = instance.generate_display_code()
+            instance.save()
+        return instance
 
 class CharacterDetailSerializer(CharacterSerializer):
     secret_key = serializers.UUIDField(read_only=True)

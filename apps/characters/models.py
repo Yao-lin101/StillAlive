@@ -13,7 +13,9 @@ class Character(models.Model):
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
-        related_name='characters'
+        related_name='characters',
+        to_field='uid',
+        db_column='user_uid'
     )
     name = models.CharField(max_length=50)
     avatar = models.ImageField(

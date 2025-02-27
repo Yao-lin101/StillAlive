@@ -3,8 +3,11 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from django.shortcuts import get_object_or_404
+import logging
 from apps.characters.models import Character
 from apps.characters.serializers import CharacterSerializer, CharacterDetailSerializer, CharacterDisplaySerializer
+
+logger = logging.getLogger(__name__)
 
 class CharacterViewSet(viewsets.ModelViewSet):
     """
@@ -51,8 +54,7 @@ class CharacterViewSet(viewsets.ModelViewSet):
         character.save()
         return Response({
             'old_code': old_code,
-            'new_code': character.display_code,
-            'display_url': self.get_serializer(character).data['display_url']
+            'new_code': character.display_code
         })
 
 class CharacterDisplayView(generics.RetrieveAPIView):
@@ -61,4 +63,22 @@ class CharacterDisplayView(generics.RetrieveAPIView):
     serializer_class = CharacterDisplaySerializer
     permission_classes = [AllowAny]
     lookup_field = 'display_code'
-    lookup_url_kwarg = 'code' 
+    lookup_url_kwarg = 'code'
+
+    def get_object(self):
+        """重写获取对象的方法，添加详细的错误处理"""
+        queryset = Character.objects.all()  # 先获取所有角色
+        code = self.kwargs.get(self.lookup_url_kwarg)
+        
+        logger.info(f"Attempting to find character with display_code: {code}")
+        
+        try:
+            character = queryset.get(display_code=code)
+            if not character.is_active:
+                logger.info(f"Character {code} found but is inactive")
+                raise Character.DoesNotExist("该角色已被禁用")
+            logger.info(f"Character {code} found and is active")
+            return character
+        except Character.DoesNotExist:
+            logger.info(f"No character found with display_code: {code}")
+            raise Character.DoesNotExist("找不到该角色") 
