@@ -37,7 +37,7 @@ class CharacterViewSet(viewsets.ModelViewSet):
     def regenerate_secret_key(self, request, pk=None):
         """重新生成角色的secret_key"""
         character = self.get_object()
-        character.save()  # 触发save方法中的secret_key重新生成
+        character.save(regenerate_secret_key=True)
         return Response({
             'secret_key': character.secret_key
         }) 

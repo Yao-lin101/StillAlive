@@ -42,7 +42,7 @@ class Character(models.Model):
         return f"{self.name} ({self.uid})"
 
     def save(self, *args, **kwargs):
-        # 如果是新创建的角色，生成一个新的secret_key
-        if not self.pk:
+        # 如果是新创建的角色或强制重新生成secret_key
+        if not self.pk or kwargs.pop('regenerate_secret_key', False):
             self.secret_key = uuid.uuid4()
         super().save(*args, **kwargs)
