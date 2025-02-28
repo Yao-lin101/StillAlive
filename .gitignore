@@ -34,6 +34,7 @@ ENV/
 env/
 all_nginx/
 .env
+.env.prod
 
 # IDE
 .idea/

@@ -20,7 +20,12 @@ RUN apt-get update \
         cron \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/* \
-    && pip install --no-cache-dir pip setuptools wheel --upgrade
+    && pip config set global.index-url https://mirrors.aliyun.com/pypi/simple/ \
+    && pip config set global.trusted-host mirrors.aliyun.com \
+    && pip config set global.timeout 300 \
+    && pip config set global.retries 5 \
+    && pip install --no-cache-dir pip setuptools wheel --upgrade \
+    && pip install --no-cache-dir pillow==11.1.0 psycopg2-binary==2.9.10
 
 # 复制 requirements.txt 并安装依赖
 COPY requirements.txt .
