@@ -5,6 +5,64 @@ from django.db import models
 from django.conf import settings
 from django.utils import timezone
 
+DEFAULT_STATUS_CONFIG = {
+    "theme": {
+        "accent_color": "from-blue-400 to-purple-400",
+        "background_url": "https://infinitypro-img.infinitynewtab.com/wallpaper/anime/408.jpg?imageView2/2/w/3200/format/webp/interlace/1",
+        "background_overlay": "from-gray-900/95 to-gray-800/95"
+    },
+    "display": {
+        "default_message": "还活着！",
+        "timeout_messages": [
+            {"hours": 24, "message": "怕不是似了"},
+            {"hours": 12, "message": "应该还活着..."},
+            {"hours": 6, "message": "可能睡着了"},
+            {"hours": 3, "message": "有一会没碰手机了"}
+        ]
+    },
+    "vital_signs": {
+        "status_1": {
+            "key": "battery",
+            "color": {
+                "type": "threshold",
+                "rules": [
+                    {"color": "#ff0000", "value": 0},
+                    {"color": "#00ff00", "value": 100}
+                ]
+            },
+            "label": "电量",
+            "suffix": "%",
+            "valueType": "number",
+            "description": "设备电量"
+        },
+        "status_2": {
+            "key": "phone",
+            "color": {
+                "type": "threshold",
+                "rules": [
+                    {"color": "#ff0000", "value": 0},
+                    {"color": "#00ff00", "value": 100}
+                ]
+            },
+            "label": "正在使用",
+            "valueType": "text",
+            "description": "显示正在使用的APP"
+        },
+        "status_3": {
+            "key": "location",
+            "label": "位置",
+            "valueType": "text",
+            "description": "所在城市"
+        },
+        "status_4": {
+            "key": "weather",
+            "label": "天气",
+            "valueType": "text",
+            "description": "城市天气"
+        }
+    }
+}
+
 def character_avatar_path(instance, filename):
     # 文件将被上传到 MEDIA_ROOT/avatars/user_<uid>/character_<uid>/<filename>
     return f'avatars/user_{instance.user.uid}/character_{instance.uid}/{filename}'
@@ -33,36 +91,7 @@ class Character(models.Model):
     is_active = models.BooleanField(default=True)
     
     # 添加状态配置字段
-    status_config = models.JSONField(default=dict, blank=True, help_text="""
-    状态配置示例：
-    {
-        "vital_signs": {
-            "ele": {
-                "label": "当前电量",
-                "suffix": "%",
-                "color": {
-                    "type": "threshold",
-                    "rules": [
-                        {"value": 20, "color": "red"},
-                        {"value": 50, "color": "yellow"},
-                        {"default": "green"}
-                    ]
-                }
-            }
-        },
-        "display": {
-            "default_message": "状态良好",
-            "timeout_messages": [
-                {"hours": 1, "message": "可能在摸鱼"},
-                {"hours": 24, "message": "已经失联一天了"},
-                {"hours": 168, "message": "已经一周没有消息了"}
-            ]
-        },
-        "theme": {
-            "background_url": "https://example.com/bg.jpg"
-        }
-    }
-    """)
+    status_config = models.JSONField(default=DEFAULT_STATUS_CONFIG, blank=True)
 
     class Meta:
         ordering = ['-created_at']
