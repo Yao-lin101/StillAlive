@@ -58,9 +58,12 @@ volumes:
     name: stillalive_redis_data
   static_volume:
     name: stillalive_static_volume
+    external: true
   media_volume:
     name: stillalive_media_volume
+    external: true
 
 networks:
   stillalive_network:
-    name: stillalive_network 
+    name: stillalive_network
+    external: true 
