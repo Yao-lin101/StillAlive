@@ -1,5 +1,7 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
+from rest_framework.decorators import api_view
+from rest_framework.response import Response
 from rest_framework_simplejwt.views import TokenRefreshView
 from .views import users
 from .views.characters import (
@@ -14,7 +16,22 @@ router = DefaultRouter()
 router.register(r'users', users.UserViewSet, basename='user')
 router.register(r'characters', CharacterViewSet, basename='character')
 
+@api_view(['GET'])
+def api_root(request):
+    return Response({
+        'status': 'ok',
+        'version': 'v1',
+        'endpoints': {
+            'users': '/api/v1/users/',
+            'characters': '/api/v1/characters/',
+            'auth': '/api/v1/auth/token/',
+        }
+    })
+
 urlpatterns = [
+    # API 根路径
+    path('', api_root, name='api-root'),
+    
     # 不需要认证的路由放在最前面
     path('status/update/', update_character_status, name='status-update'),
     path('d/<str:code>/status/', get_character_status, name='status-get'),
