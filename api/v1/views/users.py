@@ -112,10 +112,19 @@ class UserViewSet(viewsets.GenericViewSet):
     @action(detail=False, methods=['post'])
     def register_email(self, request):
         """邮箱注册"""
+        logger = logging.getLogger('utils.middleware')
+        logger.info(f"收到注册请求，数据: {request.data}")
+        
         serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
+        if not serializer.is_valid():
+            logger.error(f"注册数据验证失败: {serializer.errors}")
+            return Response(
+                {'error': serializer.errors},
+                status=status.HTTP_400_BAD_REQUEST
+            )
         
         user = serializer.save()
+        logger.info(f"用户注册成功: {user.email}")
         
         # 生成 JWT token
         refresh = RefreshToken.for_user(user)
