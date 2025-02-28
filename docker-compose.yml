@@ -3,7 +3,7 @@ services:
     build: 
       context: .
       dockerfile: Dockerfile
-    container_name: smtx_web
+    container_name: stillalive_web
     restart: unless-stopped
     command: gunicorn config.wsgi:application --config=/app/gunicorn.conf.py --worker-class=sync
     volumes:
@@ -11,7 +11,6 @@ services:
       - static_volume:/app/staticfiles
       - media_volume:/app/media
       - ./logs:/app/logs
-      - ./.well-known:/www/wwwroot/smtx/.well-known
     expose:
       - 8000
     env_file:
@@ -19,48 +18,49 @@ services:
     environment:
       - REDIS_URL=redis://redis:6379/1
       - REDIS_HOST=redis
+      - DB_HOST=db
+      - DB_PORT=5432
+      - DATABASE_URL=postgres://postgres:${DB_PASSWORD}@db:5432/${DB_NAME}
     depends_on:
       - db
       - redis
     networks:
-      - smtx_network
+      - stillalive_network
 
   db:
-    image: mysql:8.0
-    container_name: smtx_db
+    image: postgres:15-alpine
+    container_name: stillalive_db
     restart: unless-stopped
     volumes:
-      - mysql_data:/var/lib/mysql
-      - ./mysql:/docker-entrypoint-initdb.d
+      - postgres_data:/var/lib/postgresql/data
     ports:
-      - "3306:3306"
+      - "5432:5432"
     environment:
-      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD}
-      MYSQL_DATABASE: ${DB_NAME}
+      - POSTGRES_DB=${DB_NAME}
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=${DB_PASSWORD}
     networks:
-      - smtx_network
-    command: --default-authentication-plugin=mysql_native_password
+      - stillalive_network
 
   redis:
-    image: redis:7.0
-    container_name: smtx_redis
+    image: redis:7.0-alpine
+    container_name: stillalive_redis
     restart: unless-stopped
     volumes:
       - redis_data:/data
     networks:
-      - smtx_network
+      - stillalive_network
 
 volumes:
-  mysql_data:
-    name: smtx_mysql_data
+  postgres_data:
+    name: stillalive_postgres_data
   redis_data:
-    name: smtx_redis_data
+    name: stillalive_redis_data
   static_volume:
-    name: smtx_static_volume
+    name: stillalive_static_volume
   media_volume:
-    name: smtx_media_volume
+    name: stillalive_media_volume
 
 networks:
-  smtx_network:
-    name: smtx_network
-    external: true 
+  stillalive_network:
+    name: stillalive_network 
