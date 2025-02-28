@@ -16,7 +16,7 @@ import logging
 import time
 import os
 
-from apps.users.models import User, BlacklistedUser
+from apps.users.models import User, BlacklistedUser, InvitationCode
 from apps.users.serializers import (
     EmailRegisterSerializer,
     UserProfileSerializer,
@@ -25,6 +25,8 @@ from apps.users.serializers import (
     BlacklistedUserSerializer,
     DeleteAccountSerializer,
     ResetPasswordSerializer,
+    InvitationCodeSerializer,
+    CreateInvitationCodeSerializer,
 )
 from apps.users.permissions import IsSuperUser
 from apps.users.pagination import StandardResultsSetPagination
@@ -53,10 +55,14 @@ class UserViewSet(viewsets.GenericViewSet):
             return ChangePasswordSerializer
         elif self.action == 'delete_account':
             return DeleteAccountSerializer
+        elif self.action == 'create_invitation':
+            return CreateInvitationCodeSerializer
+        elif self.action == 'list_invitations':
+            return InvitationCodeSerializer
         return EmailRegisterSerializer
 
     def get_permissions(self):
-        if self.action in ['ban', 'list']:
+        if self.action in ['ban', 'list', 'create_invitation', 'list_invitations']:
             permission_classes = [permissions.IsAuthenticated, IsSuperUser]
         else:
             permission_classes = [permissions.AllowAny]
@@ -745,6 +751,44 @@ class UserViewSet(viewsets.GenericViewSet):
                 {'error': '重置密码失败，请稍后重试'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+
+    @swagger_auto_schema(
+        operation_summary="创建邀请码",
+        operation_description="超级管理员创建新的邀请码",
+        request_body=CreateInvitationCodeSerializer,
+        responses={
+            201: InvitationCodeSerializer,
+            403: "没有权限"
+        }
+    )
+    @action(detail=False, methods=['post'])
+    def create_invitation(self, request):
+        """创建邀请码"""
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        
+        invitation = InvitationCode.create_invitation_code(
+            created_by=request.user,
+            note=serializer.validated_data.get('note')
+        )
+        
+        return Response(
+            InvitationCodeSerializer(invitation).data,
+            status=status.HTTP_201_CREATED
+        )
+
+    @swagger_auto_schema(
+        operation_summary="获取邀请码列表",
+        operation_description="获取所有邀请码列表",
+        responses={200: InvitationCodeSerializer(many=True)}
+    )
+    @action(detail=False, methods=['get'])
+    def list_invitations(self, request):
+        """获取邀请码列表"""
+        invitations = InvitationCode.objects.all()
+        page = self.paginate_queryset(invitations)
+        serializer = InvitationCodeSerializer(page, many=True)
+        return self.get_paginated_response(serializer.data)
 
 class PrivacyPolicyView(TemplateView):
     template_name = 'users/privacy_policy.html'

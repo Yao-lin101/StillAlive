@@ -4,7 +4,7 @@ from django.core.cache import cache
 from django.conf import settings
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 import random
-from apps.users.models import BlacklistedUser
+from apps.users.models import BlacklistedUser, InvitationCode
 
 User = get_user_model()
 
@@ -50,16 +50,35 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
         }
         return data
 
+class InvitationCodeSerializer(serializers.ModelSerializer):
+    """邀请码序列化器"""
+    created_by_username = serializers.CharField(source='created_by.username', read_only=True)
+    used_by_username = serializers.CharField(source='used_by.username', read_only=True)
+    
+    class Meta:
+        model = InvitationCode
+        fields = ['code', 'created_by_username', 'used_by_username', 
+                 'is_used', 'created_at', 'used_at', 'note']
+        read_only_fields = ['code', 'created_by_username', 'used_by_username', 
+                          'is_used', 'created_at', 'used_at']
+
+class CreateInvitationCodeSerializer(serializers.ModelSerializer):
+    """创建邀请码序列化器"""
+    class Meta:
+        model = InvitationCode
+        fields = ['note']
+
 class EmailRegisterSerializer(serializers.ModelSerializer):
     """邮箱注册序列化器"""
     email = serializers.EmailField(required=True)
     password = serializers.CharField(required=True, write_only=True, min_length=6,
                                    style={'input_type': 'password'})
     verify_code = serializers.CharField(required=True, write_only=True)
+    invitation_code = serializers.CharField(required=True, write_only=True)
 
     class Meta:
         model = User
-        fields = ['email', 'password', 'verify_code']
+        fields = ['email', 'password', 'verify_code', 'invitation_code']
 
     def validate_email(self, value):
         """验证邮箱是否已被注册"""
@@ -76,16 +95,32 @@ class EmailRegisterSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("验证码错误或已过期")
         return value
 
+    def validate_invitation_code(self, value):
+        """验证邀请码"""
+        try:
+            invitation = InvitationCode.objects.get(code=value)
+            if not invitation.is_valid:
+                raise serializers.ValidationError("邀请码已被使用")
+            return invitation
+        except InvitationCode.DoesNotExist:
+            raise serializers.ValidationError("邀请码不存在")
+
     def create(self, validated_data):
         """创建用户"""
         email = validated_data['email']
         password = validated_data['password']
+        invitation = validated_data['invitation_code']
+        
         # 创建用户
         user = User.objects.create_user(
             email=email,
             password=password,
             is_email_verified=True
         )
+        
+        # 使用邀请码
+        invitation.use(user)
+        
         return user
 
 class UserProfileSerializer(serializers.ModelSerializer):

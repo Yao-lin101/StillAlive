@@ -149,3 +149,71 @@ class BlacklistedUser(models.Model):
     def __str__(self):
         return f"{self.user.username} blocked {self.blocked_user.username}"
 
+def generate_invitation_code():
+    """生成8位邀请码"""
+    return shortuuid.ShortUUID(alphabet="23456789ABCDEFGHJKLMNPQRSTUVWXYZ").random(length=8)
+
+class InvitationCode(models.Model):
+    code = models.CharField(
+        max_length=8,
+        unique=True,
+        default=generate_invitation_code,
+        editable=False,
+        verbose_name='邀请码'
+    )
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name='created_invitation_codes',
+        verbose_name='创建者'
+    )
+    used_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='used_invitation_code',
+        verbose_name='使用者'
+    )
+    is_used = models.BooleanField(default=False, verbose_name='是否已使用')
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name='创建时间')
+    used_at = models.DateTimeField(null=True, blank=True, verbose_name='使用时间')
+    note = models.TextField(blank=True, null=True, verbose_name='备注')
+
+    class Meta:
+        verbose_name = '邀请码'
+        verbose_name_plural = verbose_name
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"邀请码: {self.code}"
+
+    def use(self, user):
+        """使用邀请码"""
+        if self.is_used:
+            raise ValueError('邀请码已被使用')
+            
+        self.is_used = True
+        self.used_by = user
+        self.used_at = timezone.now()
+        self.save()
+
+    @classmethod
+    def create_invitation_code(cls, created_by, note=None):
+        """
+        创建新的邀请码
+        :param created_by: 创建者（User对象）
+        :param note: 备注信息
+        :return: InvitationCode对象
+        """
+        return cls.objects.create(
+            created_by=created_by,
+            note=note
+        )
+
+    @property
+    def is_valid(self):
+        """检查邀请码是否有效"""
+        return not self.is_used
+
