@@ -6,7 +6,14 @@ DEBUG = False
 # SECURITY WARNING: keep the secret key used in production secret!
 SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY')
 
-ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', '').split(',') + ['web', 'web:8000', '43.138.180.23', 'ineed.asia', 'www.ineed.asia']
+ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', '').split(',') + [
+    'web',
+    'web:8000',
+    '43.138.180.23',
+    'ineed.asia',
+    'www.ineed.asia',
+    'alive.ineed.asia'
+]
 
 # CORS settings
 CORS_ALLOW_ALL_ORIGINS = True  # 临时允许所有来源，用于测试
