@@ -23,6 +23,15 @@ class CharacterSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ['uid', 'display_code', 'created_at', 'updated_at']
 
+    def validate(self, attrs):
+        """验证用户创建的角色数量"""
+        user = self.context['request'].user
+        if not user.is_superuser and self.instance is None:  # 只在创建新角色时验证
+            character_count = Character.objects.filter(user=user).count()
+            if character_count >= 3:
+                raise serializers.ValidationError("非超级用户最多只能创建2个角色")
+        return attrs
+
     def create(self, validated_data):
         # 确保创建时 is_active 为 True
         validated_data['is_active'] = True

@@ -28,6 +28,17 @@ class CharacterViewSet(viewsets.ModelViewSet):
         """只返回当前用户的角色"""
         return Character.objects.filter(user=self.request.user)
     
+    def create(self, request, *args, **kwargs):
+        """创建角色时进行额外验证"""
+        if not request.user.is_superuser:
+            character_count = Character.objects.filter(user=request.user).count()
+            if character_count >= 3:
+                return Response(
+                    {'error': '最多只能创建3个角色'},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+        return super().create(request, *args, **kwargs)
+    
     def get_serializer_class(self):
         """根据操作类型返回不同的序列化器"""
         if self.action in ['retrieve', 'update', 'partial_update', 'create']:
