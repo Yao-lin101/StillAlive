@@ -32,9 +32,9 @@ class CharacterViewSet(viewsets.ModelViewSet):
         """创建角色时进行额外验证"""
         if not request.user.is_superuser:
             character_count = Character.objects.filter(user=request.user).count()
-            if character_count >= 3:
+            if character_count >= 4:
                 return Response(
-                    {'error': '最多只能创建3个角色'},
+                    {'error': '算你厉害，但是也别太贪心了'},
                     status=status.HTTP_403_FORBIDDEN
                 )
         return super().create(request, *args, **kwargs)

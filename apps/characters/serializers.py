@@ -28,8 +28,8 @@ class CharacterSerializer(serializers.ModelSerializer):
         user = self.context['request'].user
         if not user.is_superuser and self.instance is None:  # 只在创建新角色时验证
             character_count = Character.objects.filter(user=user).count()
-            if character_count >= 3:
-                raise serializers.ValidationError("非超级用户最多只能创建2个角色")
+            if character_count >= 4:
+                raise serializers.ValidationError("算你厉害，但是也别太贪心了")
         return attrs
 
     def create(self, validated_data):
