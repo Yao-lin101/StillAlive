@@ -4,6 +4,7 @@ echo "=== Starting StillAlive Application ==="
 echo "Environment: $DJANGO_SETTINGS_MODULE"
 echo "Database Host: $DB_HOST:$DB_PORT"
 echo "Redis Host: $REDIS_HOST:6379"
+echo "Celery Broker: $CELERY_BROKER_URL"
 
 # 等待 PostgreSQL 准备就绪
 echo "=== Checking PostgreSQL Connection ==="
@@ -40,8 +41,5 @@ python manage.py migrate --noinput
 echo "✓ Database migrations applied"
 
 # 启动应用
-echo "=== Starting Gunicorn Server ==="
-echo "Workers: 4"
-echo "Bind: 0.0.0.0:8000"
-echo "Config: /app/gunicorn.conf.py"
+echo "=== Starting Application ==="
 exec "$@" 

@@ -4,6 +4,8 @@ import string
 from django.db import models
 from django.conf import settings
 from django.utils import timezone
+from django.core.exceptions import ValidationError
+from django.core.validators import validate_email
 
 def get_default_status_config():
     return {
@@ -146,4 +148,45 @@ class CharacterStatus(models.Model):
         return cls.objects.filter(
             id__in=[item['latest_id'] for item in latest_by_type]
         )
+
+class WillConfig(models.Model):
+    character = models.OneToOneField(Character, on_delete=models.CASCADE, related_name='will_config')
+    is_enabled = models.BooleanField(default=False)
+    content = models.TextField(help_text='遗嘱内容', blank=True, null=True, default='')
+    target_email = models.EmailField(help_text='主要收件人邮箱')
+    cc_emails = models.JSONField(default=list, blank=True, help_text='抄送邮箱列表')
+    timeout_hours = models.IntegerField(default=24, help_text='触发时间（小时）')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=['character', 'is_enabled']),
+        ]
+        verbose_name = '遗嘱配置'
+        verbose_name_plural = '遗嘱配置'
+
+    def clean(self):
+        if self.timeout_hours <= 0:
+            raise ValidationError({'timeout_hours': '超时时间必须大于0'})
+
+        # 验证主要收件人邮箱
+        try:
+            validate_email(self.target_email)
+        except ValidationError:
+            raise ValidationError({'target_email': '无效的邮箱格式'})
+
+        # 验证抄送邮箱列表
+        if self.cc_emails:
+            for email in self.cc_emails:
+                try:
+                    validate_email(email)
+                except ValidationError:
+                    raise ValidationError({'cc_emails': f'无效的抄送邮箱格式: {email}'})
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.character.name}的遗嘱配置"
 

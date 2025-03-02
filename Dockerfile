@@ -17,7 +17,6 @@ RUN apt-get update \
         pkg-config \
         build-essential \
         netcat-traditional \
-        cron \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/* \
     && pip config set global.index-url https://mirrors.aliyun.com/pypi/simple/ \
@@ -27,15 +26,20 @@ RUN apt-get update \
     && pip install --no-cache-dir pip setuptools wheel --upgrade \
     && pip install --no-cache-dir pillow==11.1.0 psycopg2-binary==2.9.10
 
+# 在 Python 依赖安装后，创建 celery 用户和组
+RUN groupadd -r celery && useradd -r -g celery celery
+
+# 确保目录权限正确
+RUN mkdir -p /app/logs/celery && \
+    chown -R celery:celery /app/logs
+
 # 复制 requirements.txt 并安装依赖
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # 创建必要的目录
-RUN mkdir -p /app/logs /app/media /app/staticfiles \
-    && mkdir -p /var/spool/cron/crontabs \
-    && touch /app/logs/cron.log \
-    && chmod 666 /app/logs/cron.log
+RUN mkdir -p /app/logs/celery /app/media /app/staticfiles \
+    && chmod -R 755 /app/logs /app/media /app/staticfiles
 
 # 复制启动脚本并设置权限
 COPY docker-entrypoint.sh /usr/local/bin/
@@ -50,5 +54,5 @@ EXPOSE 8000
 # 设置启动命令
 ENTRYPOINT ["docker-entrypoint.sh"]
 
-# 在启动命令中添加 cron 服务
-CMD service cron start && python manage.py crontab add && python manage.py collectstatic --noinput && gunicorn config.wsgi:application --bind 0.0.0.0:8000 --workers 4 --timeout 120 
+# 默认启动命令（会被 docker-compose 中的 command 覆盖）
+CMD ["gunicorn", "config.wsgi:application", "--config=/app/gunicorn.conf.py"] 

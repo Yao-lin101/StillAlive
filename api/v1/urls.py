@@ -6,7 +6,8 @@ from rest_framework_simplejwt.views import TokenRefreshView
 from .views import users
 from .views.characters import (
     CharacterViewSet, CharacterDisplayView,
-    update_character_status, get_character_status
+    update_character_status, get_character_status,
+    WillConfigViewSet
 )
 
 # 创建路由器
@@ -15,6 +16,10 @@ router = DefaultRouter()
 # 注册视图集
 router.register(r'users', users.UserViewSet, basename='user')
 router.register(r'characters', CharacterViewSet, basename='character')
+
+# 注册遗嘱配置路由
+character_router = DefaultRouter()
+character_router.register(r'will', WillConfigViewSet, basename='character-will')
 
 @api_view(['GET'])
 def api_root(request):
@@ -43,4 +48,6 @@ urlpatterns = [
     
     # 需要认证的路由放在后面
     path('', include(router.urls)),
+    # 遗嘱配置路由
+    path('characters/<str:character_pk>/', include(character_router.urls)),
 ] 

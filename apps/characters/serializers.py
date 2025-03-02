@@ -1,6 +1,6 @@
 from rest_framework import serializers
 from django.conf import settings
-from .models import Character, CharacterStatus
+from .models import Character, CharacterStatus, WillConfig
 import logging
 
 logger = logging.getLogger(__name__)
@@ -91,4 +91,56 @@ class CharacterStatusResponseSerializer(serializers.Serializer):
         child=serializers.DictField(
             child=serializers.JSONField()
         )
-    ) 
+    )
+
+class WillConfigSerializer(serializers.ModelSerializer):
+    cc_emails = serializers.ListField(
+        child=serializers.EmailField(),
+        required=False,
+        default=list
+    )
+    content = serializers.CharField(required=False, allow_blank=True)
+
+    class Meta:
+        model = WillConfig
+        fields = [
+            'is_enabled',
+            'content',
+            'target_email',
+            'cc_emails',
+            'timeout_hours',
+            'created_at'
+        ]
+        read_only_fields = ['created_at']
+
+    def validate(self, data):
+        """验证数据，只有在启用遗嘱时才检查必填字段"""
+        # 获取is_enabled字段的值，如果不存在则使用默认值False
+        is_enabled = data.get('is_enabled')
+        
+        # 只有在明确启用遗嘱时才验证必填字段
+        if is_enabled is True:  # 明确检查是否为True
+            # 验证目标邮箱
+            if not data.get('target_email'):
+                # 检查是否是部分更新，以及实例是否已经有target_email
+                instance = getattr(self, 'instance', None)
+                if instance and instance.target_email:
+                    # 如果是更新现有实例，且实例已有target_email，则不需要再提供
+                    pass
+                else:
+                    # 如果是新建或实例没有target_email，则必须提供
+                    raise serializers.ValidationError({'target_email': '启用遗嘱时必须提供目标邮箱'})
+        
+        return data
+
+    def validate_cc_emails(self, value):
+        if len(value) > 5:  # 限制抄送邮箱数量
+            raise serializers.ValidationError("抄送邮箱不能超过5个")
+        return value
+
+    def validate_timeout_hours(self, value):
+        if value < 24:  # 最短24小时
+            raise serializers.ValidationError("触发时间不能少于24小时")
+        if value > 8760:  # 最长一年
+            raise serializers.ValidationError("触发时间不能超过一年")
+        return value 

@@ -88,8 +88,18 @@ LOGGING = {
             'level': 'INFO',
             'propagate': True,
         },
+        'apps.characters.tasks': {
+            'handlers': ['console', 'file'],
+            'level': 'INFO',
+            'propagate': True,
+        },
     },
 }
 
 # Disable password validation in development
 AUTH_PASSWORD_VALIDATORS = []
+
+# Celery
+# ------------------------------------------------------------------------------
+CELERY_BROKER_URL = os.environ.get('CELERY_BROKER_URL', 'redis://127.0.0.1:6379/2')
+CELERY_RESULT_BACKEND = os.environ.get('CELERY_RESULT_BACKEND', 'redis://127.0.0.1:6379/2')
