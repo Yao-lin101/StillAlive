@@ -216,7 +216,7 @@ class UserViewSet(viewsets.GenericViewSet):
         # 6. 发送邮件
         try:
             send_mail(
-                subject='SMTX - 邮箱验证码',
+                subject='StillAlive - 邮箱验证码',
                 message=plain_message,
                 from_email=settings.DEFAULT_FROM_EMAIL,
                 recipient_list=[email],
@@ -683,7 +683,7 @@ class UserViewSet(viewsets.GenericViewSet):
             plain_message = strip_tags(html_message)
             
             send_mail(
-                subject='复读喵 - 重置密码验证码',
+                subject='StillAlive - 重置密码验证码',
                 message=plain_message,
                 from_email=settings.DEFAULT_FROM_EMAIL,
                 recipient_list=[email],
