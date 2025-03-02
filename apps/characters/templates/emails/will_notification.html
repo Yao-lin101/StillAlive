@@ -54,6 +54,19 @@
             margin-bottom: 0;
             padding-left: 20px;
         }
+        .status-link {
+            display: inline-block;
+            margin-top: 15px;
+            padding: 10px 15px;
+            background-color: #2563eb;
+            color: white;
+            text-decoration: none;
+            border-radius: 5px;
+            font-weight: bold;
+        }
+        .status-link:hover {
+            background-color: #1d4ed8;
+        }
     </style>
 </head>
 <body>
@@ -73,6 +86,7 @@
             <li>最坏的可能，<span class="character-name">{{ character_name }}</span> 现在有生命危险</li>
         </ul>
         <p>无论如何，这都不是一个好的迹象，请尽快与 <span class="character-name">{{ character_name }}</span> 取得联系。以下是 <span class="character-name">{{ character_name }}</span> 针对这种情况发生时留下的信息：</p>
+        <p><a href="{{ display_url }}" class="status-link">查看 {{ character_name }} 的状态页面</a></p>
     </div>
 
     <div class="content">
@@ -82,6 +96,7 @@
     <div class="footer">
         <p>此邮件由系统自动发送，请勿回复。</p>
         <p>如有问题，请联系管理员。</p>
+        <p>您也可以通过以下链接查看 <span class="character-name">{{ character_name }}</span> 的最新状态：<a href="{{ display_url }}">{{ display_url }}</a></p>
     </div>
 </body>
 </html> 

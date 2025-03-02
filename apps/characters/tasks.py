@@ -48,12 +48,16 @@ def send_will_email(self, will_config_id):
         else:
             time_diff_str = f"{minutes}分钟"
         
+        # 构建角色状态展示链接
+        display_url = f"{settings.CHARACTER_DISPLAY_BASE_URL}/d/{will_config.character.display_code}"
+        
         # 渲染邮件模板
         html_content = render_to_string('emails/will_notification.html', {
             'character_name': will_config.character.name,
             'content': will_config.content,
             'last_updated': last_updated.strftime('%Y-%m-%d %H:%M:%S'),
-            'time_since_last_update': time_diff_str
+            'time_since_last_update': time_diff_str,
+            'display_url': display_url
         })
 
         # 创建邮件
