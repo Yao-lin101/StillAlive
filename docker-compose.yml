@@ -32,20 +32,21 @@ services:
   celery_worker:
     build: .
     container_name: stillalive_celery_worker
-    command: celery -A config worker -l INFO
+    restart: unless-stopped
+    user: celery
+    command: celery -A config worker --loglevel=INFO
     volumes:
       - .:/app
-      - ./logs:/app/logs
+      - ./logs/celery:/app/logs/celery
     env_file:
       - .env
     environment:
-      - REDIS_HOST=redis
+      - DJANGO_SETTINGS_MODULE=config.settings.production
       - DB_HOST=db
-      - DB_PORT=5432
+      - REDIS_HOST=redis
       - CELERY_BROKER_URL=redis://redis:6379/2
       - CELERY_RESULT_BACKEND=redis://redis:6379/2
     depends_on:
-      - web
       - redis
       - db
     networks:
@@ -54,20 +55,21 @@ services:
   celery_beat:
     build: .
     container_name: stillalive_celery_beat
-    command: celery -A config beat -l INFO
+    restart: unless-stopped
+    user: celery
+    command: celery -A config beat --loglevel=INFO
     volumes:
       - .:/app
-      - ./logs:/app/logs
+      - ./logs/celery:/app/logs/celery
     env_file:
       - .env
     environment:
-      - REDIS_HOST=redis
+      - DJANGO_SETTINGS_MODULE=config.settings.production
       - DB_HOST=db
-      - DB_PORT=5432
+      - REDIS_HOST=redis
       - CELERY_BROKER_URL=redis://redis:6379/2
       - CELERY_RESULT_BACKEND=redis://redis:6379/2
     depends_on:
-      - web
       - redis
       - db
     networks:

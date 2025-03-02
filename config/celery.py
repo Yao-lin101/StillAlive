@@ -8,6 +8,9 @@ os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'config.settings.local')
 
 app = Celery('config')
 
+# 添加新的配置
+app.conf.broker_connection_retry_on_startup = True
+
 # 使用 Django 的设置文件配置 Celery
 app.config_from_object('django.conf:settings', namespace='CELERY')
 
