@@ -182,3 +182,24 @@ CORS_ALLOW_CREDENTIALS = True
 
 # 角色展示页面的基础 URL
 CHARACTER_DISPLAY_BASE_URL = os.environ.get('CHARACTER_DISPLAY_BASE_URL', '')
+
+# Celery Configuration
+# ------------------------------------------------------------------------------
+CELERY_TIMEZONE = TIME_ZONE
+CELERY_ENABLE_UTC = False
+CELERY_ACCEPT_CONTENT = ['json']
+CELERY_TASK_SERIALIZER = 'json'
+CELERY_RESULT_SERIALIZER = 'json'
+
+# 配置任务的默认设置
+CELERY_TASK_DEFAULT_QUEUE = 'default'
+CELERY_TASK_DEFAULT_EXCHANGE = 'default'
+CELERY_TASK_DEFAULT_ROUTING_KEY = 'default'
+
+# 配置任务的重试策略
+CELERY_TASK_RETRY_POLICY = {
+    'max_retries': 3,
+    'interval_start': 0,
+    'interval_step': 0.2,
+    'interval_max': 0.5,
+}

@@ -50,5 +50,5 @@ EXPOSE 8000
 # 设置启动命令
 ENTRYPOINT ["docker-entrypoint.sh"]
 
-# 在启动命令中添加 cron 服务
-CMD service cron start && python manage.py crontab add && python manage.py collectstatic --noinput && gunicorn config.wsgi:application --bind 0.0.0.0:8000 --workers 4 --timeout 120 
+# 默认启动命令（会被 docker-compose 中的 command 覆盖）
+CMD ["gunicorn", "config.wsgi:application", "--config=/app/gunicorn.conf.py"] 

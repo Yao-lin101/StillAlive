@@ -147,3 +147,22 @@ class CharacterStatus(models.Model):
             id__in=[item['latest_id'] for item in latest_by_type]
         )
 
+class WillConfig(models.Model):
+    character = models.OneToOneField(Character, on_delete=models.CASCADE, related_name='will_config')
+    is_enabled = models.BooleanField(default=False)
+    content = models.TextField(help_text='遗嘱内容')
+    target_email = models.EmailField(help_text='主要收件人邮箱')
+    cc_emails = models.JSONField(default=list, help_text='抄送邮箱列表')
+    timeout_hours = models.IntegerField(default=168, help_text='触发时间（小时）')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=['character', 'is_enabled']),
+        ]
+        verbose_name = '遗嘱配置'
+        verbose_name_plural = '遗嘱配置'
+
+    def __str__(self):
+        return f"{self.character.name}的遗嘱配置"
+

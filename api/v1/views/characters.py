@@ -5,12 +5,16 @@ from rest_framework.permissions import IsAuthenticated, AllowAny
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from datetime import timedelta
+from django.core.mail import EmailMessage
+from django.conf import settings
+from django.template.loader import render_to_string
 import logging
 
-from apps.characters.models import Character, CharacterStatus
+from apps.characters.models import Character, CharacterStatus, WillConfig
 from apps.characters.serializers import (
     CharacterSerializer, CharacterDetailSerializer, CharacterDisplaySerializer,
-    CharacterStatusUpdateSerializer, CharacterStatusResponseSerializer
+    CharacterStatusUpdateSerializer, CharacterStatusResponseSerializer,
+    WillConfigSerializer
 )
 
 logger = logging.getLogger(__name__)
@@ -208,4 +212,106 @@ def get_character_status(request, code):
         return Response(
             {'error': str(e)},
             status=status.HTTP_400_BAD_REQUEST
-        ) 
+        )
+
+class WillConfigViewSet(viewsets.ModelViewSet):
+    """
+    遗嘱配置管理 API
+    
+    提供遗嘱配置的创建、查询、更新、删除等功能
+    """
+    permission_classes = [IsAuthenticated]
+    serializer_class = WillConfigSerializer
+
+    def get_queryset(self):
+        """只返回当前用户角色的遗嘱配置"""
+        return WillConfig.objects.filter(character__user=self.request.user)
+
+    def get_object(self):
+        """获取指定角色的遗嘱配置"""
+        character_uid = self.kwargs.get('character_pk')
+        return get_object_or_404(
+            WillConfig,
+            character__uid=character_uid,
+            character__user=self.request.user
+        )
+
+    def perform_create(self, serializer):
+        """创建遗嘱配置时关联到指定角色"""
+        character = get_object_or_404(
+            Character,
+            uid=self.kwargs['character_pk'],
+            user=self.request.user
+        )
+        serializer.save(character=character)
+
+def send_will_email(will_config):
+    """
+    发送遗嘱邮件
+    """
+    try:
+        # 获取最后更新时间
+        last_status = CharacterStatus.objects.filter(
+            character=will_config.character
+        ).order_by('-timestamp').first()
+        
+        last_updated = last_status.timestamp if last_status else timezone.now()
+        
+        # 渲染邮件模板
+        html_content = render_to_string('emails/will_notification.html', {
+            'character_name': will_config.character.name,
+            'content': will_config.content,
+            'last_updated': last_updated.strftime('%Y-%m-%d %H:%M:%S')
+        })
+
+        # 创建邮件
+        email = EmailMessage(
+            subject=f"来自 {will_config.character.name} 的遗嘱",
+            body=html_content,
+            from_email=settings.DEFAULT_FROM_EMAIL,
+            to=[will_config.target_email],
+            cc=will_config.cc_emails
+        )
+        email.content_subtype = "html"  # 设置邮件内容为 HTML
+        
+        # 发送邮件
+        email.send()
+        logger.info(f"Will email sent successfully for character {will_config.character.name}")
+        return True
+    except Exception as e:
+        logger.error(f"Failed to send will email for character {will_config.character.name}: {str(e)}")
+        return False
+
+def check_and_send_wills():
+    """
+    定时检查是否需要发送遗嘱
+    建议每小时执行一次
+    """
+    now = timezone.now()
+    
+    # 获取所有启用了遗嘱功能的配置
+    active_wills = WillConfig.objects.filter(
+        is_enabled=True
+    ).select_related('character')
+
+    for will in active_wills:
+        # 获取角色最后的状态更新时间
+        last_status = CharacterStatus.objects.filter(
+            character=will.character
+        ).order_by('-timestamp').first()
+
+        if not last_status:
+            continue
+
+        # 计算是否超过设定的超时时间
+        timeout = timedelta(hours=will.timeout_hours)
+        if now - last_status.timestamp > timeout:
+            # 发送遗嘱邮件
+            if send_will_email(will):
+                # 发送成功后禁用遗嘱功能，防止重复发送
+                will.is_enabled = False
+                will.save()
+                logger.info(
+                    f"Will sent and disabled for character {will.character.name} "
+                    f"(uid: {will.character.uid}). Last status update was at {last_status.timestamp}"
+                ) 

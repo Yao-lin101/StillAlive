@@ -21,9 +21,55 @@ services:
       - DB_HOST=db
       - DB_PORT=5432
       - DATABASE_URL=postgres://postgres:${DB_PASSWORD}@db:5432/${DB_NAME}
+      - CELERY_BROKER_URL=redis://redis:6379/2
+      - CELERY_RESULT_BACKEND=redis://redis:6379/2
     depends_on:
       - db
       - redis
+    networks:
+      - stillalive_network
+
+  celery_worker:
+    build: .
+    container_name: stillalive_celery_worker
+    command: celery -A config worker -l INFO
+    volumes:
+      - .:/app
+      - ./logs:/app/logs
+    env_file:
+      - .env
+    environment:
+      - REDIS_HOST=redis
+      - DB_HOST=db
+      - DB_PORT=5432
+      - CELERY_BROKER_URL=redis://redis:6379/2
+      - CELERY_RESULT_BACKEND=redis://redis:6379/2
+    depends_on:
+      - web
+      - redis
+      - db
+    networks:
+      - stillalive_network
+
+  celery_beat:
+    build: .
+    container_name: stillalive_celery_beat
+    command: celery -A config beat -l INFO
+    volumes:
+      - .:/app
+      - ./logs:/app/logs
+    env_file:
+      - .env
+    environment:
+      - REDIS_HOST=redis
+      - DB_HOST=db
+      - DB_PORT=5432
+      - CELERY_BROKER_URL=redis://redis:6379/2
+      - CELERY_RESULT_BACKEND=redis://redis:6379/2
+    depends_on:
+      - web
+      - redis
+      - db
     networks:
       - stillalive_network
 

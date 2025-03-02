@@ -1,6 +1,6 @@
 from rest_framework import serializers
 from django.conf import settings
-from .models import Character, CharacterStatus
+from .models import Character, CharacterStatus, WillConfig
 import logging
 
 logger = logging.getLogger(__name__)
@@ -91,4 +91,35 @@ class CharacterStatusResponseSerializer(serializers.Serializer):
         child=serializers.DictField(
             child=serializers.JSONField()
         )
-    ) 
+    )
+
+class WillConfigSerializer(serializers.ModelSerializer):
+    cc_emails = serializers.ListField(
+        child=serializers.EmailField(),
+        required=False,
+        default=list
+    )
+
+    class Meta:
+        model = WillConfig
+        fields = [
+            'is_enabled',
+            'content',
+            'target_email',
+            'cc_emails',
+            'timeout_hours',
+            'created_at'
+        ]
+        read_only_fields = ['created_at']
+
+    def validate_cc_emails(self, value):
+        if len(value) > 5:  # 限制抄送邮箱数量
+            raise serializers.ValidationError("抄送邮箱不能超过5个")
+        return value
+
+    def validate_timeout_hours(self, value):
+        if value < 24:  # 最短24小时
+            raise serializers.ValidationError("触发时间不能少于24小时")
+        if value > 8760:  # 最长一年
+            raise serializers.ValidationError("触发时间不能超过一年")
+        return value 
