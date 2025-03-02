@@ -26,8 +26,13 @@ echo "✓ Redis is up and running"
 
 # 确保日志目录存在并设置权限
 echo "=== Setting up Directories ==="
-mkdir -p /app/logs /app/media /app/staticfiles
+mkdir -p /app/logs /app/media /app/staticfiles /app/celerybeat-data
 chmod -R 755 /app/logs /app/media /app/staticfiles
+# 确保 celerybeat-data 目录有正确的权限
+if [ -d "/app/celerybeat-data" ]; then
+    chown -R celery:celery /app/celerybeat-data
+    chmod -R 775 /app/celerybeat-data
+fi
 echo "✓ Directories setup completed"
 
 # 收集静态文件

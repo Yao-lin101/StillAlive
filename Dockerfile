@@ -30,8 +30,8 @@ RUN apt-get update \
 RUN groupadd -r celery && useradd -r -g celery celery
 
 # 确保目录权限正确
-RUN mkdir -p /app/logs/celery && \
-    chown -R celery:celery /app/logs
+RUN mkdir -p /app/logs/celery /app/celerybeat-data && \
+    chown -R celery:celery /app/logs /app/celerybeat-data
 
 # 复制 requirements.txt 并安装依赖
 COPY requirements.txt .

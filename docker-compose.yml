@@ -57,10 +57,11 @@ services:
     container_name: stillalive_celery_beat
     restart: unless-stopped
     user: celery
-    command: celery -A config beat --loglevel=INFO
+    command: celery -A config beat --loglevel=INFO --schedule=/app/celerybeat-data/celerybeat-schedule
     volumes:
       - .:/app
       - ./logs/celery:/app/logs/celery
+      - celerybeat_data:/app/celerybeat-data
     env_file:
       - .env
     environment:
@@ -110,6 +111,8 @@ volumes:
   media_volume:
     name: stillalive_media_volume
     external: true
+  celerybeat_data:
+    name: stillalive_celerybeat_data
 
 networks:
   stillalive_network:
