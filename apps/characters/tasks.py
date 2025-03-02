@@ -32,16 +32,33 @@ def send_will_email(self, will_config_id):
         
         last_updated = last_status.timestamp if last_status else timezone.now()
         
+        # 计算自上次更新以来的时间
+        now = timezone.now()
+        time_since_last_update = now - last_updated
+        
+        # 格式化时间差为人类可读的格式
+        days = time_since_last_update.days
+        hours, remainder = divmod(time_since_last_update.seconds, 3600)
+        minutes, _ = divmod(remainder, 60)
+        
+        if days > 0:
+            time_diff_str = f"{days}天{hours}小时{minutes}分钟"
+        elif hours > 0:
+            time_diff_str = f"{hours}小时{minutes}分钟"
+        else:
+            time_diff_str = f"{minutes}分钟"
+        
         # 渲染邮件模板
         html_content = render_to_string('emails/will_notification.html', {
             'character_name': will_config.character.name,
             'content': will_config.content,
-            'last_updated': last_updated.strftime('%Y-%m-%d %H:%M:%S')
+            'last_updated': last_updated.strftime('%Y-%m-%d %H:%M:%S'),
+            'time_since_last_update': time_diff_str
         })
 
         # 创建邮件
         email = EmailMessage(
-            subject=f"来自 {will_config.character.name} 的遗嘱",
+            subject=f"紧急通知：{will_config.character.name} 已超过 {will_config.timeout_hours} 小时未更新状态",
             body=html_content,
             from_email=settings.DEFAULT_FROM_EMAIL,
             to=[will_config.target_email],

@@ -37,12 +37,42 @@
             color: #666;
             font-size: 14px;
         }
+        .alert-info {
+            background-color: #f8f9fa;
+            border-left: 4px solid #6c757d;
+            padding: 15px;
+            margin-bottom: 20px;
+            color: #495057;
+            font-size: 14px;
+        }
+        .alert-info h4 {
+            color: #495057;
+            margin-top: 0;
+            margin-bottom: 10px;
+        }
+        .alert-info ul {
+            margin-bottom: 0;
+            padding-left: 20px;
+        }
     </style>
 </head>
 <body>
     <div class="header">
-        <h2>来自 <span class="character-name">{{ character_name }}</span> 的遗嘱</h2>
+        <h2>来自 <span class="character-name">{{ character_name }}</span> 的亡语</h2>
         <p class="timestamp">最后更新时间：{{ last_updated }}</p>
+    </div>
+
+    <div class="alert-info">
+        <h4>重要提示</h4>
+        <p><span class="character-name">{{ character_name }}</span> 正在使用我们的状态同步服务，本服务会在 <span class="character-name">{{ character_name }}</span> 使用手机或者其他设备时自动同步使用状态。截至本邮件发送时，已经 <strong>{{ time_since_last_update }}</strong> 没有收到 <span class="character-name">{{ character_name }}</span> 的状态更新。</p>
+        <p><span class="character-name">{{ character_name }}</span> 可能存在以下情况之一：</p>
+        <ul>
+            <li><span class="character-name">{{ character_name }}</span> 的设备无法接收网络信号</li>
+            <li><span class="character-name">{{ character_name }}</span> 的设备可能处于关机状态</li>
+            <li><span class="character-name">{{ character_name }}</span> 可能自行关闭了状态同步，但是没有关闭邮件提醒</li>
+            <li>最坏的可能，<span class="character-name">{{ character_name }}</span> 现在有生命危险</li>
+        </ul>
+        <p>无论如何，这都不是一个好的迹象，请尽快与 <span class="character-name">{{ character_name }}</span> 取得联系。以下是 <span class="character-name">{{ character_name }}</span> 针对这种情况发生时留下的信息：</p>
     </div>
 
     <div class="content">
