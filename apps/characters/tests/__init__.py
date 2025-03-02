@@ -1,0 +1,3 @@
+"""
+Characters app test suite
+""" 

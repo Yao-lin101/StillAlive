@@ -6,6 +6,8 @@ from django.template.loader import render_to_string
 from django.conf import settings
 from .models import WillConfig, CharacterStatus
 import logging
+import os
+from django.db import transaction
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +51,7 @@ def send_will_email(self, will_config_id):
         
         # 发送邮件
         email.send()
+        
         logger.info(f"Will email sent successfully for character {will_config.character.name}")
         return True
     except Exception as e:
@@ -68,6 +71,8 @@ def check_wills():
         is_enabled=True
     ).select_related('character')
 
+    logger.info(f"Found {active_wills.count()} active wills")
+
     for will in active_wills:
         try:
             # 获取角色最后的状态更新时间
@@ -76,20 +81,36 @@ def check_wills():
             ).order_by('-timestamp').first()
 
             if not last_status:
+                logger.info(f"No status found for character {will.character.name}")
                 continue
 
             # 计算是否超过设定的超时时间
             timeout = timedelta(hours=will.timeout_hours)
-            if now - last_status.timestamp > timeout:
-                # 异步发送遗嘱邮件
-                send_will_email.delay(will.id)
-                # 禁用遗嘱功能
-                will.is_enabled = False
-                will.save()
+            time_since_last_update = now - last_status.timestamp
+            
+            logger.info(f"Character: {will.character.name}")
+            logger.info(f"Now: {now}")
+            logger.info(f"Last status: {last_status.timestamp}")
+            logger.info(f"Time since last update: {time_since_last_update}")
+            logger.info(f"Timeout setting: {timeout}")
+            
+            if time_since_last_update > timeout:
                 logger.info(
-                    f"Will task scheduled for character {will.character.name} "
-                    f"(uid: {will.character.uid}). Last status update was at {last_status.timestamp}"
+                    f"Timeout detected for character {will.character.name} "
+                    f"(uid: {will.character.uid}). Last status update was {time_since_last_update} ago"
                 )
+                
+                # 禁用遗嘱配置
+                will.is_enabled = False
+                will.save(update_fields=['is_enabled'])
+                logger.info(f"Will config disabled: {will.is_enabled}")
+                
+                # 发送邮件通知
+                send_will_email.delay(will.id)
+                logger.info(f"Will config disabled for character {will.character.name}")
+            else:
+                logger.info(f"No timeout detected for character {will.character.name}")
+            
         except Exception as e:
             logger.error(f"Error processing will for character {will.character.name}: {str(e)}")
             continue
