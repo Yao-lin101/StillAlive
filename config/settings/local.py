@@ -88,6 +88,11 @@ LOGGING = {
             'level': 'INFO',
             'propagate': True,
         },
+        'apps.characters.tasks': {
+            'handlers': ['console', 'file'],
+            'level': 'INFO',
+            'propagate': True,
+        },
     },
 }
 
