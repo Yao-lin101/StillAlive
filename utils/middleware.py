@@ -32,19 +32,11 @@ class MiddlewareTimingMiddleware:
         total_time = end_time - request_start
         middleware_time = end_time - self._start_times[current_middleware]
         
-        # 记录详细的时间信息
-        # logger.info(f"\n{'='*50}")
-        # logger.info(f"Request: {request.method} {request.path}")
-        # logger.info(f"Total time: {total_time:.3f}s")
-        # logger.info(f"Middleware timing breakdown:")
-        # logger.info(f"- {current_middleware}: {middleware_time:.3f}s")
-        
-        # 如果有视图处理时间，也记录它
-        if hasattr(request, '_view_time'):
-            view_time = request._view_time
-            logger.info(f"View execution time: {view_time:.3f}s")
-        
-        logger.info(f"{'='*50}\n")
+        # 只在DEBUG模式下或请求时间超过阈值时记录性能日志
+        if settings.DEBUG or total_time > 1.0:  # 超过1秒的请求记录日志
+            if hasattr(request, '_view_time'):
+                view_time = request._view_time
+                logger.info(f"Request: {request.method} {request.path} - Total: {total_time:.3f}s, View: {view_time:.3f}s")
         
         return response
 

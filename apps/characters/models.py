@@ -152,10 +152,10 @@ class CharacterStatus(models.Model):
 class WillConfig(models.Model):
     character = models.OneToOneField(Character, on_delete=models.CASCADE, related_name='will_config')
     is_enabled = models.BooleanField(default=False)
-    content = models.TextField(help_text='遗嘱内容')
+    content = models.TextField(help_text='遗嘱内容', blank=True, null=True, default='')
     target_email = models.EmailField(help_text='主要收件人邮箱')
     cc_emails = models.JSONField(default=list, blank=True, help_text='抄送邮箱列表')
-    timeout_hours = models.IntegerField(default=168, help_text='触发时间（小时）')
+    timeout_hours = models.IntegerField(default=24, help_text='触发时间（小时）')
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

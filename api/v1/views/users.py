@@ -113,7 +113,6 @@ class UserViewSet(viewsets.GenericViewSet):
     def register_email(self, request):
         """邮箱注册"""
         logger = logging.getLogger('utils.middleware')
-        logger.info(f"收到注册请求，数据: {request.data}")
         
         serializer = self.get_serializer(data=request.data)
         if not serializer.is_valid():
@@ -160,8 +159,6 @@ class UserViewSet(viewsets.GenericViewSet):
         """发送邮箱验证码"""
         logger = logging.getLogger('utils.middleware')
         
-        start_time = time.time()
-        
         # 1. 验证邮箱格式
         email = request.data.get('email')
         if not email:
@@ -170,13 +167,9 @@ class UserViewSet(viewsets.GenericViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        logger.info(f"获取邮箱用时: {time.time() - start_time:.3f}s")
-        check_start = time.time()
-
         # 2. 检查邮箱是否已被注册
         try:
             if User.objects.filter(email=email).exists():
-                logger.info("邮箱已被注册")
                 return Response(
                     {'error': '该邮箱已被注册'}, 
                     status=status.HTTP_400_BAD_REQUEST
@@ -192,7 +185,6 @@ class UserViewSet(viewsets.GenericViewSet):
         limit_key = self._get_verify_code_limit_cache_key(email)
         try:
             if cache.get(limit_key):
-                logger.info("发送太频繁")
                 return Response(
                     {'error': '发送太频繁，请稍后再试'}, 
                     status=status.HTTP_429_TOO_MANY_REQUESTS
@@ -204,22 +196,16 @@ class UserViewSet(viewsets.GenericViewSet):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
             
-        logger.info(f"检查频率限制用时: {time.time() - check_start:.3f}s")
-        gen_start = time.time()
-            
         # 4. 生成验证码
         verify_code = self._generate_verify_code()
-        logger.info(f"生成验证码用时: {time.time() - gen_start:.3f}s")
         
         # 5. 准备邮件内容
         try:
-            template_start = time.time()
             html_message = render_to_string('users/verify_code_email.html', {
                 'verify_code': verify_code,
                 'valid_minutes': 10
             })
             plain_message = strip_tags(html_message)
-            logger.info(f"准备邮件内容用时: {time.time() - template_start:.3f}s")
         except Exception as e:
             logger.error(f"准备邮件内容时出错: {str(e)}")
             return Response(
@@ -228,7 +214,6 @@ class UserViewSet(viewsets.GenericViewSet):
             )
         
         # 6. 发送邮件
-        send_start = time.time()
         try:
             send_mail(
                 subject='SMTX - 邮箱验证码',
@@ -238,7 +223,7 @@ class UserViewSet(viewsets.GenericViewSet):
                 html_message=html_message,
                 fail_silently=False,
             )
-            logger.info(f"发送邮件用时: {time.time() - send_start:.3f}s")
+            logger.info(f"验证码已发送至: {email}")
         except Exception as e:
             logger.error(f"发送邮件失败: {str(e)}")
             # 根据错误类型返回更具体的错误信息
@@ -261,11 +246,9 @@ class UserViewSet(viewsets.GenericViewSet):
             
         # 7. 保存验证码到缓存
         try:
-            cache_start = time.time()
             code_key = self._get_verify_code_cache_key(email)
             cache.set(code_key, verify_code, timeout=60 * 10)  # 10分钟有效期
             cache.set(limit_key, 1, timeout=60)  # 1分钟内不能重复发送
-            logger.info(f"缓存操作用时: {time.time() - cache_start:.3f}s")
         except Exception as e:
             logger.error(f"保存验证码到缓存时出错: {str(e)}")
             return Response(
@@ -273,7 +256,6 @@ class UserViewSet(viewsets.GenericViewSet):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
         
-        logger.info(f"总用时: {time.time() - start_time:.3f}s")
         return Response({'message': '验证码发送成功'})
 
     @swagger_auto_schema(

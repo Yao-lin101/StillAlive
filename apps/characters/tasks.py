@@ -88,12 +88,7 @@ def check_wills():
             timeout = timedelta(hours=will.timeout_hours)
             time_since_last_update = now - last_status.timestamp
             
-            logger.info(f"Character: {will.character.name}")
-            logger.info(f"Now: {now}")
-            logger.info(f"Last status: {last_status.timestamp}")
-            logger.info(f"Time since last update: {time_since_last_update}")
-            logger.info(f"Timeout setting: {timeout}")
-            
+            # 只保留关键日志，移除详细的调试信息
             if time_since_last_update > timeout:
                 logger.info(
                     f"Timeout detected for character {will.character.name} "
@@ -103,13 +98,10 @@ def check_wills():
                 # 禁用遗嘱配置
                 will.is_enabled = False
                 will.save(update_fields=['is_enabled'])
-                logger.info(f"Will config disabled: {will.is_enabled}")
                 
                 # 发送邮件通知
                 send_will_email.delay(will.id)
                 logger.info(f"Will config disabled for character {will.character.name}")
-            else:
-                logger.info(f"No timeout detected for character {will.character.name}")
             
         except Exception as e:
             logger.error(f"Error processing will for character {will.character.name}: {str(e)}")

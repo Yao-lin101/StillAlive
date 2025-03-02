@@ -4,6 +4,7 @@ from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
+from django.http import Http404
 from datetime import timedelta
 from django.core.mail import EmailMessage
 from django.conf import settings
@@ -46,7 +47,6 @@ class CharacterViewSet(viewsets.ModelViewSet):
     def get_serializer_class(self):
         """根据操作类型返回不同的序列化器"""
         if self.action in ['retrieve', 'update', 'partial_update', 'create']:
-            logger.info(f"Using CharacterDetailSerializer for action: {self.action}")
             return CharacterDetailSerializer
         return CharacterSerializer
     
@@ -118,14 +118,11 @@ class CharacterDisplayView(generics.RetrieveAPIView):
         queryset = Character.objects.all()  # 先获取所有角色
         code = self.kwargs.get(self.lookup_url_kwarg)
         
-        logger.info(f"Attempting to find character with display_code: {code}")
-        
         try:
             character = queryset.get(display_code=code)
             if not character.is_active:
-                logger.info(f"Character {code} found but is inactive")
+                logger.info(f"Character {code} is inactive")
                 raise Character.DoesNotExist("该角色已被禁用")
-            logger.info(f"Character {code} found and is active")
             return character
         except Character.DoesNotExist:
             logger.info(f"No character found with display_code: {code}")
@@ -244,74 +241,51 @@ class WillConfigViewSet(viewsets.ModelViewSet):
             user=self.request.user
         )
         serializer.save(character=character)
-
-def send_will_email(will_config):
-    """
-    发送遗嘱邮件
-    """
-    try:
-        # 获取最后更新时间
-        last_status = CharacterStatus.objects.filter(
-            character=will_config.character
-        ).order_by('-timestamp').first()
         
-        last_updated = last_status.timestamp if last_status else timezone.now()
+    def list(self, request, *args, **kwargs):
+        """获取指定角色的遗嘱配置，如果不存在则返回404"""
+        try:
+            character_uid = self.kwargs.get('character_pk')
+            instance = self.get_object()
+            serializer = self.get_serializer(instance)
+            return Response(serializer.data)
+        except Exception as e:
+            logger.error(f"获取遗嘱配置失败: {str(e)}")
+            # 如果不存在，返回404
+            return Response(
+                {'error': '遗嘱配置不存在'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+    def create(self, request, *args, **kwargs):
+        """创建或更新遗嘱配置"""
+        character_uid = self.kwargs.get('character_pk')
+        logger.info(f"创建或更新角色 {character_uid} 的遗嘱配置")
         
-        # 渲染邮件模板
-        html_content = render_to_string('emails/will_notification.html', {
-            'character_name': will_config.character.name,
-            'content': will_config.content,
-            'last_updated': last_updated.strftime('%Y-%m-%d %H:%M:%S')
-        })
-
-        # 创建邮件
-        email = EmailMessage(
-            subject=f"来自 {will_config.character.name} 的遗嘱",
-            body=html_content,
-            from_email=settings.DEFAULT_FROM_EMAIL,
-            to=[will_config.target_email],
-            cc=will_config.cc_emails
-        )
-        email.content_subtype = "html"  # 设置邮件内容为 HTML
-        
-        # 发送邮件
-        email.send()
-        logger.info(f"Will email sent successfully for character {will_config.character.name}")
-        return True
-    except Exception as e:
-        logger.error(f"Failed to send will email for character {will_config.character.name}: {str(e)}")
-        return False
-
-def check_and_send_wills():
-    """
-    定时检查是否需要发送遗嘱
-    建议每小时执行一次
-    """
-    now = timezone.now()
-    
-    # 获取所有启用了遗嘱功能的配置
-    active_wills = WillConfig.objects.filter(
-        is_enabled=True
-    ).select_related('character')
-
-    for will in active_wills:
-        # 获取角色最后的状态更新时间
-        last_status = CharacterStatus.objects.filter(
-            character=will.character
-        ).order_by('-timestamp').first()
-
-        if not last_status:
-            continue
-
-        # 计算是否超过设定的超时时间
-        timeout = timedelta(hours=will.timeout_hours)
-        if now - last_status.timestamp > timeout:
-            # 发送遗嘱邮件
-            if send_will_email(will):
-                # 发送成功后禁用遗嘱功能，防止重复发送
-                will.is_enabled = False
-                will.save()
-                logger.info(
-                    f"Will sent and disabled for character {will.character.name} "
-                    f"(uid: {will.character.uid}). Last status update was at {last_status.timestamp}"
-                ) 
+        try:
+            # 尝试获取现有配置
+            instance = self.get_object()
+            
+            # 如果存在，则更新
+            serializer = self.get_serializer(instance, data=request.data, partial=True)
+            if not serializer.is_valid():
+                logger.error(f"更新遗嘱配置验证失败: {serializer.errors}")
+                return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+            
+            self.perform_update(serializer)
+            return Response(serializer.data)
+        except Http404:
+            # 如果不存在，则创建新配置
+            serializer = self.get_serializer(data=request.data)
+            if not serializer.is_valid():
+                logger.error(f"创建遗嘱配置验证失败: {serializer.errors}")
+                return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+            
+            self.perform_create(serializer)
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        except Exception as e:
+            logger.error(f"更新遗嘱配置失败: {str(e)}")
+            return Response(
+                {'error': f'更新遗嘱配置失败: {str(e)}'},
+                status=status.HTTP_400_BAD_REQUEST
+            ) 
