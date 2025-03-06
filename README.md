@@ -74,7 +74,7 @@ cp .env.example .env.local
 
 ### 更新状态
 ```http
-POST https://alive.ineed.asia/api/v1/status/update/
+POST https://your-domain/api/v1/status/update/
 Content-Type: application/json
 X-Character-Key: YOUR_CHARACTER_KEY
 
