@@ -10,9 +10,7 @@ from django.core.validators import validate_email
 def get_default_status_config():
     return {
         "theme": {
-            "accent_color": "from-blue-400 to-purple-400",
-            "background_url": "https://infinitypro-img.infinitynewtab.com/wallpaper/anime/408.jpg?imageView2/2/w/3200/format/webp/interlace/1",
-            "background_overlay": "from-gray-900/95 to-gray-800/95"
+            "background_url": "https://infinitypro-img.infinitynewtab.com/wallpaper/anime/408.jpg?imageView2/2/w/3200/format/webp/interlace/1"
         },
         "display": {
             "default_message": "还活着！",
