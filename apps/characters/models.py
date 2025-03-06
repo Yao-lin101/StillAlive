@@ -26,13 +26,6 @@ def get_default_status_config():
         "vital_signs": {
             "status_1": {
                 "key": "battery",
-                "color": {
-                    "type": "threshold",
-                    "rules": [
-                        {"color": "#ff0000", "value": 0},
-                        {"color": "#00ff00", "value": 100}
-                    ]
-                },
                 "label": "电量",
                 "suffix": "%",
                 "valueType": "number",
@@ -40,13 +33,6 @@ def get_default_status_config():
             },
             "status_2": {
                 "key": "phone",
-                "color": {
-                    "type": "threshold",
-                    "rules": [
-                        {"color": "#ff0000", "value": 0},
-                        {"color": "#00ff00", "value": 100}
-                    ]
-                },
                 "label": "正在使用",
                 "valueType": "text",
                 "description": "显示正在使用的APP"
