@@ -2,6 +2,7 @@ from rest_framework import serializers
 from django.conf import settings
 from .models import Character, CharacterStatus, WillConfig
 import logging
+import json
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +63,11 @@ class CharacterDetailSerializer(CharacterSerializer):
             vital_signs = value['vital_signs']
             if not isinstance(vital_signs, dict):
                 raise serializers.ValidationError("vital_signs 必须是一个对象")
+            
+            # 验证配置长度
+            config_str = json.dumps(value)
+            if len(config_str) > 10000:
+                raise serializers.ValidationError("状态配置长度不能超过10000个字符")
             
             return value
         except Exception as e:
