@@ -3,7 +3,6 @@ import secrets
 import string
 from django.db import models
 from django.conf import settings
-from django.utils import timezone
 from django.core.exceptions import ValidationError
 from django.core.validators import validate_email
 
@@ -15,10 +14,10 @@ def get_default_status_config():
         "display": {
             "default_message": "还活着！",
             "timeout_messages": [
-                {"hours": 24, "message": "怕不是似了"},
-                {"hours": 12, "message": "应该还活着..."},
+                {"hours": 3, "message": "有一会没碰手机了"},
                 {"hours": 6, "message": "可能睡着了"},
-                {"hours": 3, "message": "有一会没碰手机了"}
+                {"hours": 12, "message": "应该还活着..."},
+                {"hours": 24, "message": "怕不是似了"}
             ]
         },
         "vital_signs": {
