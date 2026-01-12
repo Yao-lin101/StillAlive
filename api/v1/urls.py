@@ -7,7 +7,7 @@ from .views import users
 from .views.characters import (
     CharacterViewSet, CharacterDisplayView,
     update_character_status, get_character_status,
-    WillConfigViewSet
+    WillConfigViewSet, SurvivorsListView
 )
 
 # 创建路由器
@@ -39,6 +39,7 @@ urlpatterns = [
     
     # 不需要认证的路由放在最前面
     path('status/update/', update_character_status, name='status-update'),
+    path('survivors/', SurvivorsListView.as_view(), name='survivors-list'),
     path('d/<str:code>/status/', get_character_status, name='status-get'),
     path('d/<str:code>/', CharacterDisplayView.as_view(), name='character-display'),
     

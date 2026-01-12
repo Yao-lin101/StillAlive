@@ -20,6 +20,7 @@ class CharacterSerializer(serializers.ModelSerializer):
             'created_at', 
             'updated_at', 
             'is_active',
+            'is_public',
             'status_config'
         ]
         read_only_fields = ['uid', 'display_code', 'created_at', 'updated_at']

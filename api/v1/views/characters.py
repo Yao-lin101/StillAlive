@@ -105,6 +105,75 @@ class CharacterViewSet(viewsets.ModelViewSet):
             logger.error(f"Error updating character {kwargs.get('pk')}: {str(e)}")
             return Response({"detail": str(e)}, status=400)
 
+class SurvivorsListView(generics.ListAPIView):
+    """公开访问的存活者列表视图 - Survivors 页面"""
+    serializer_class = CharacterDisplaySerializer
+    permission_classes = [AllowAny]
+    
+    def get_queryset(self):
+        """返回所有激活且公开的角色"""
+        return Character.objects.filter(is_active=True, is_public=True).order_by('-updated_at')
+    
+    def list(self, request, *args, **kwargs):
+        """获取所有存活者及其状态"""
+        queryset = self.get_queryset()
+        survivors = []
+        
+        for character in queryset:
+            # 获取角色最新状态
+            latest_statuses = CharacterStatus.get_latest_status(character)
+            
+            # 获取最新更新时间
+            last_updated = None
+            for status_item in latest_statuses:
+                if status_item.status_type == 'vital_signs':
+                    last_updated = status_item.timestamp
+                    break
+            
+            # 如果没有 vital_signs，使用任意最新状态的时间
+            if not last_updated and latest_statuses:
+                last_updated = latest_statuses[0].timestamp
+            
+            # 判断在线状态（15分钟内更新为在线）
+            is_online = (
+                last_updated and 
+                timezone.now() - last_updated < timedelta(minutes=15)
+            )
+            
+            # 获取状态消息
+            status_message = ""
+            if character.status_config and 'display' in character.status_config:
+                display_config = character.status_config['display']
+                if last_updated:
+                    diff_hours = (timezone.now() - last_updated).total_seconds() / 3600
+                    timeout_messages = display_config.get('timeout_messages', [])
+                    # 按小时降序排序
+                    timeout_messages_sorted = sorted(timeout_messages, key=lambda x: x.get('hours', 0), reverse=True)
+                    for msg in timeout_messages_sorted:
+                        if diff_hours >= msg.get('hours', 0):
+                            status_message = msg.get('message', '')
+                            break
+                    if not status_message:
+                        status_message = display_config.get('default_message', '')
+                else:
+                    status_message = display_config.get('default_message', '')
+            
+            survivors.append({
+                'display_code': character.display_code,
+                'name': character.name,
+                'avatar': character.avatar,
+                'bio': character.bio,
+                'is_online': is_online,
+                'last_updated': last_updated,
+                'status_message': status_message,
+            })
+        
+        return Response({
+            'count': len(survivors),
+            'results': survivors
+        })
+
+
 class CharacterDisplayView(generics.RetrieveAPIView):
     """公开访问的角色展示视图"""
     queryset = Character.objects.filter(is_active=True)
