@@ -111,8 +111,8 @@ class SurvivorsListView(generics.ListAPIView):
     permission_classes = [AllowAny]
     
     def get_queryset(self):
-        """返回所有激活状态的角色"""
-        return Character.objects.filter(is_active=True).order_by('-updated_at')
+        """返回所有激活且公开的角色"""
+        return Character.objects.filter(is_active=True, is_public=True).order_by('-updated_at')
     
     def list(self, request, *args, **kwargs):
         """获取所有存活者及其状态"""

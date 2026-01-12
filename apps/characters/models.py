@@ -75,6 +75,7 @@ class Character(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     is_active = models.BooleanField(default=True)
+    is_public = models.BooleanField(default=False, help_text='是否在存活者列表公开显示')
     
     # 修改状态配置字段的默认值为可调用对象
     status_config = models.JSONField(default=get_default_status_config, blank=True)
@@ -85,6 +86,7 @@ class Character(models.Model):
             models.Index(fields=['user']),
             models.Index(fields=['secret_key']),
             models.Index(fields=['display_code']),
+            models.Index(fields=['is_public']),
         ]
 
     def __str__(self):
