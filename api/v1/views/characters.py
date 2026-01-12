@@ -10,6 +10,9 @@ from django.core.mail import EmailMessage
 from django.conf import settings
 from django.template.loader import render_to_string
 import logging
+import json
+import urllib.request
+import urllib.error
 
 from apps.characters.models import Character, CharacterStatus, WillConfig, Message
 from apps.characters.serializers import (
@@ -374,6 +377,29 @@ class CharacterMessageView(generics.ListCreateAPIView):
         # 限制只返回最近50条
         return Message.objects.filter(character=character)[:50]
 
+    def get_location_from_ip(self, ip):
+        """通过在线API获取IP归属地"""
+        if not ip or ip in ['127.0.0.1', 'localhost', '::1']:
+            return '本地'
+            
+        try:
+            # 使用 ip-api.com (免费，限制45req/min)
+            url = f"http://ip-api.com/json/{ip}?lang=zh-CN"
+            # 设置超时以防止阻塞
+            with urllib.request.urlopen(url, timeout=2) as response:
+                data = json.loads(response.read().decode())
+                if data.get('status') == 'success':
+                    region = data.get('regionName', '')
+                    city = data.get('city', '')
+                    # 避免显示 "Beijing Beijing"
+                    if region == city:
+                        return region
+                    return f"{region} {city}".strip()
+        except Exception as e:
+            logger.error(f"Failed to resolve IP {ip}: {e}")
+            
+        return None
+
     def perform_create(self, serializer):
         code = self.kwargs.get('code')
         character = get_object_or_404(Character, display_code=code, is_active=True)
@@ -385,4 +411,6 @@ class CharacterMessageView(generics.ListCreateAPIView):
         else:
             ip = self.request.META.get('REMOTE_ADDR')
             
-        serializer.save(character=character, ip_address=ip)
+        location = self.get_location_from_ip(ip) if ip else None
+            
+        serializer.save(character=character, ip_address=ip, location=location)
