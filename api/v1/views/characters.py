@@ -410,14 +410,12 @@ class CharacterMessageView(generics.ListCreateAPIView):
                     # ip2region 返回格式: "国家|省份|城市|ISP" (4个字段)
                     parts = result.split('|')
                     province = parts[1] if len(parts) > 1 and parts[1] != '0' else ''
-                    city = parts[2] if len(parts) > 2 and parts[2] != '0' else ''
                     
-                    # 如果省份和城市相同，只显示一个
-                    if province == city:
-                        return province if province else None
-                    # 如果城市是 ISP 名称（移动、联通、电信等），只返回省份+城市
-                    location = f"{province}{city}".strip()
-                    return location if location else None
+                    # 只显示省份，去掉"省"后缀
+                    if province:
+                        province = province.replace('省', '').replace('市', '')
+                        return province
+                    return None
             except Exception as e:
                 logger.error(f"ip2region lookup failed for {ip}: {e}")
         
