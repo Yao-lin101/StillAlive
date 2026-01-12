@@ -76,10 +76,18 @@ class CharacterDetailSerializer(CharacterSerializer):
 
 class CharacterDisplaySerializer(serializers.ModelSerializer):
     """用于公开展示的角色序列化器"""
+    is_owner = serializers.SerializerMethodField()
+
     class Meta:
         model = Character
-        fields = ['name', 'avatar', 'bio', 'status_config']
+        fields = ['name', 'avatar', 'bio', 'status_config', 'is_owner']
         read_only_fields = fields 
+
+    def get_is_owner(self, obj):
+        request = self.context.get('request')
+        if request and request.user.is_authenticated:
+            return obj.user == request.user
+        return False 
 
 class CharacterStatusSerializer(serializers.ModelSerializer):
     class Meta:

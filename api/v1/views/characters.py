@@ -414,3 +414,15 @@ class CharacterMessageView(generics.ListCreateAPIView):
         location = self.get_location_from_ip(ip) if ip else None
             
         serializer.save(character=character, ip_address=ip, location=location)
+
+class CharacterMessageDetailView(generics.DestroyAPIView):
+    """
+    删除特定留言
+    """
+    queryset = Message.objects.all()
+    serializer_class = MessageSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        # 仅允许删除属于自己角色的留言
+        return Message.objects.filter(character__user=self.request.user)

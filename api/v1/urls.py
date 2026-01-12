@@ -7,7 +7,8 @@ from .views import users
 from .views.characters import (
     CharacterViewSet, CharacterDisplayView,
     update_character_status, get_character_status,
-    WillConfigViewSet, SurvivorsListView, CharacterMessageView
+    WillConfigViewSet, SurvivorsListView, CharacterMessageView,
+    CharacterMessageDetailView
 )
 
 
@@ -43,7 +44,8 @@ urlpatterns = [
     path('status/update/', update_character_status, name='status-update'),
     path('survivors/', SurvivorsListView.as_view(), name='survivors-list'),
     path('d/<str:code>/status/', get_character_status, name='status-get'),
-    path('d/<str:code>/messages/', CharacterMessageView.as_view(), name='character-messages'),
+    path('characters/<str:code>/messages/', CharacterMessageView.as_view(), name='character-messages'),
+    path('characters/<str:code>/messages/<int:pk>/', CharacterMessageDetailView.as_view(), name='character-message-detail'),
     path('d/<str:code>/', CharacterDisplayView.as_view(), name='character-display'),
     
     # JWT 认证
