@@ -175,3 +175,19 @@ class WillConfig(models.Model):
     def __str__(self):
         return f"{self.character.name}的遗嘱配置"
 
+
+class Message(models.Model):
+    character = models.ForeignKey(Character, on_delete=models.CASCADE, related_name='messages')
+    content = models.TextField(max_length=500, help_text='留言内容')
+    ip_address = models.GenericIPAddressField(null=True, blank=True, verbose_name="IP地址")
+    location = models.CharField(max_length=100, blank=True, null=True, verbose_name="地理位置")
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="创建时间")
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['character', '-created_at']),
+        ]
+        verbose_name = '留言'
+        verbose_name_plural = '留言'
+
