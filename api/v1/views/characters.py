@@ -188,6 +188,7 @@ class SurvivorsListView(generics.ListAPIView):
                 'is_online': is_online,
                 'last_updated': last_updated,
                 'status_message': status_message,
+                'experience': character.experience,
             })
         
         return Response({
@@ -264,6 +265,24 @@ def update_character_status(request):
             status_type=serializer.validated_data['type'],
             data=serializer.validated_data['data']
         )
+        
+        # 经验值系统 - 连续同步奖励
+        from datetime import date, timedelta
+        today = date.today()
+        
+        if character.last_sync_date != today:
+            # 今天还没有获得同步经验
+            if character.last_sync_date == today - timedelta(days=1):
+                # 连续同步，streak +1
+                character.sync_streak += 1
+            else:
+                # 断签，重置为1
+                character.sync_streak = 1
+            
+            # 获得经验 = 当前连续天数
+            character.experience += character.sync_streak
+            character.last_sync_date = today
+            character.save(update_fields=['experience', 'sync_streak', 'last_sync_date'])
         
         # 更新计数器
         if current_count == 0:
@@ -470,6 +489,22 @@ class CharacterMessageView(generics.ListCreateAPIView):
         location = self.get_location_from_ip(ip) if ip else None
             
         serializer.save(character=character, ip_address=ip, location=location)
+        
+        # 经验值系统 - 弹幕贡献奖励
+        from datetime import date
+        today = date.today()
+        
+        if ip:
+            # 检查是否需要重置今日IP列表
+            if character.danmaku_ips_date != today:
+                character.danmaku_ips_today = []
+                character.danmaku_ips_date = today
+            
+            # 检查该IP今天是否已贡献过经验
+            if ip not in character.danmaku_ips_today:
+                character.danmaku_ips_today.append(ip)
+                character.experience += 1
+                character.save(update_fields=['experience', 'danmaku_ips_today', 'danmaku_ips_date'])
 
 class CharacterMessageDetailView(generics.DestroyAPIView):
     """

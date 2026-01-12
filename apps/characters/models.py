@@ -79,6 +79,13 @@ class Character(models.Model):
     
     # 修改状态配置字段的默认值为可调用对象
     status_config = models.JSONField(default=get_default_status_config, blank=True)
+    
+    # 经验值系统
+    experience = models.PositiveIntegerField(default=0, help_text='角色总经验值')
+    sync_streak = models.PositiveIntegerField(default=0, help_text='连续同步天数')
+    last_sync_date = models.DateField(null=True, blank=True, help_text='上次同步日期')
+    danmaku_ips_today = models.JSONField(default=list, blank=True, help_text='今日已贡献经验的IP列表')
+    danmaku_ips_date = models.DateField(null=True, blank=True, help_text='IP列表对应的日期')
 
     class Meta:
         ordering = ['-created_at']

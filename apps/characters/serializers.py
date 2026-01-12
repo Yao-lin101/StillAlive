@@ -21,9 +21,10 @@ class CharacterSerializer(serializers.ModelSerializer):
             'updated_at', 
             'is_active',
             'is_public',
-            'status_config'
+            'status_config',
+            'experience'
         ]
-        read_only_fields = ['uid', 'display_code', 'created_at', 'updated_at']
+        read_only_fields = ['uid', 'display_code', 'created_at', 'updated_at', 'experience']
 
     def validate(self, attrs):
         """验证用户创建的角色数量"""
