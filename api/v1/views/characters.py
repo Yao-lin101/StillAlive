@@ -223,6 +223,11 @@ class CharacterDisplayView(generics.RetrieveAPIView):
 @permission_classes([AllowAny])
 def update_character_status(request):
     """通过快捷指令更新角色状态"""
+    from django.core.cache import cache
+    
+    RATE_LIMIT_UPLOADS = 250  # 每小时最大上传次数
+    RATE_LIMIT_WINDOW = 3600  # 1小时（秒）
+    
     try:
         # 从请求头获取秘钥
         secret_key = request.headers.get('X-Character-Key')
@@ -243,12 +248,28 @@ def update_character_status(request):
         # 验证 secret_key
         character = get_object_or_404(Character, secret_key=secret_key)
         
+        # 速率限制检查
+        rate_limit_key = f"status_upload_rate:{character.uid}"
+        current_count = cache.get(rate_limit_key, 0)
+        
+        if current_count >= RATE_LIMIT_UPLOADS:
+            return Response(
+                {'error': f'已超过每小时 {RATE_LIMIT_UPLOADS} 次的上传限制'},
+                status=status.HTTP_429_TOO_MANY_REQUESTS
+            )
+        
         # 创建新状态记录
         CharacterStatus.objects.create(
             character=character,
             status_type=serializer.validated_data['type'],
             data=serializer.validated_data['data']
         )
+        
+        # 更新计数器
+        if current_count == 0:
+            cache.set(rate_limit_key, 1, RATE_LIMIT_WINDOW)
+        else:
+            cache.incr(rate_limit_key)
 
         return Response({'status': 'success'})
     except Exception as e:
