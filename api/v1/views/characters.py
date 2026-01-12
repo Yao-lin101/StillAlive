@@ -15,6 +15,8 @@ import urllib.request
 import urllib.error
 import os
 
+logger = logging.getLogger(__name__)
+
 # ip2region 本地库支持
 XDB_SEARCHER = None
 XDB_PATH = os.path.join(settings.BASE_DIR, 'data', 'ip2region.xdb')
@@ -39,8 +41,6 @@ from apps.characters.serializers import (
     CharacterStatusUpdateSerializer, CharacterStatusResponseSerializer,
     WillConfigSerializer, MessageSerializer
 )
-
-logger = logging.getLogger(__name__)
 
 class CharacterViewSet(viewsets.ModelViewSet):
     """
