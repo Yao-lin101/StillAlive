@@ -7,8 +7,10 @@ from .views import users
 from .views.characters import (
     CharacterViewSet, CharacterDisplayView,
     update_character_status, get_character_status,
-    WillConfigViewSet, SurvivorsListView
+    WillConfigViewSet, SurvivorsListView, CharacterMessageView
 )
+
+
 
 # 创建路由器
 router = DefaultRouter()
@@ -41,6 +43,7 @@ urlpatterns = [
     path('status/update/', update_character_status, name='status-update'),
     path('survivors/', SurvivorsListView.as_view(), name='survivors-list'),
     path('d/<str:code>/status/', get_character_status, name='status-get'),
+    path('d/<str:code>/messages/', CharacterMessageView.as_view(), name='character-messages'),
     path('d/<str:code>/', CharacterDisplayView.as_view(), name='character-display'),
     
     # JWT 认证

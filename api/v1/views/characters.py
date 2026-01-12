@@ -11,11 +11,11 @@ from django.conf import settings
 from django.template.loader import render_to_string
 import logging
 
-from apps.characters.models import Character, CharacterStatus, WillConfig
+from apps.characters.models import Character, CharacterStatus, WillConfig, Message
 from apps.characters.serializers import (
     CharacterSerializer, CharacterDetailSerializer, CharacterDisplaySerializer,
     CharacterStatusUpdateSerializer, CharacterStatusResponseSerializer,
-    WillConfigSerializer
+    WillConfigSerializer, MessageSerializer
 )
 
 logger = logging.getLogger(__name__)
@@ -358,3 +358,31 @@ class WillConfigViewSet(viewsets.ModelViewSet):
                 {'error': f'更新遗嘱配置失败: {str(e)}'},
                 status=status.HTTP_400_BAD_REQUEST
             ) 
+class CharacterMessageView(generics.ListCreateAPIView):
+    """
+    角色留言板 API
+    GET: 获取最近50条留言
+    POST: 发送新留言
+    """
+    serializer_class = MessageSerializer
+    permission_classes = [AllowAny]
+    pagination_class = None
+
+    def get_queryset(self):
+        code = self.kwargs.get('code')
+        character = get_object_or_404(Character, display_code=code, is_active=True)
+        # 限制只返回最近50条
+        return Message.objects.filter(character=character)[:50]
+
+    def perform_create(self, serializer):
+        code = self.kwargs.get('code')
+        character = get_object_or_404(Character, display_code=code, is_active=True)
+        
+        # 获取客户端IP
+        x_forwarded_for = self.request.META.get('HTTP_X_FORWARDED_FOR')
+        if x_forwarded_for:
+            ip = x_forwarded_for.split(',')[0]
+        else:
+            ip = self.request.META.get('REMOTE_ADDR')
+            
+        serializer.save(character=character, ip_address=ip)

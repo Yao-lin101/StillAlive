@@ -1,6 +1,6 @@
 from rest_framework import serializers
 from django.conf import settings
-from .models import Character, CharacterStatus, WillConfig
+from .models import Character, CharacterStatus, WillConfig, Message
 import logging
 import json
 
@@ -150,4 +150,10 @@ class WillConfigSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("触发时间不能少于24小时")
         if value > 8760:  # 最长一年
             raise serializers.ValidationError("触发时间不能超过一年")
-        return value 
+        return value
+
+class MessageSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Message
+        fields = ['id', 'content', 'created_at']
+        read_only_fields = ['id', 'created_at']
