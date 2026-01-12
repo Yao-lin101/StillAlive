@@ -407,13 +407,15 @@ class CharacterMessageView(generics.ListCreateAPIView):
                 result = XDB_SEARCHER.search(ip)
                 
                 if result:
-                    # ip2region 返回格式: "国家|区域|省份|城市|ISP"
+                    # ip2region 返回格式: "国家|省份|城市|ISP" (4个字段)
                     parts = result.split('|')
-                    province = parts[2] if len(parts) > 2 and parts[2] != '0' else ''
-                    city = parts[3] if len(parts) > 3 and parts[3] != '0' else ''
+                    province = parts[1] if len(parts) > 1 and parts[1] != '0' else ''
+                    city = parts[2] if len(parts) > 2 and parts[2] != '0' else ''
                     
+                    # 如果省份和城市相同，只显示一个
                     if province == city:
                         return province if province else None
+                    # 如果城市是 ISP 名称（移动、联通、电信等），只返回省份+城市
                     location = f"{province}{city}".strip()
                     return location if location else None
             except Exception as e:

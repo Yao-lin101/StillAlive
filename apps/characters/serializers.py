@@ -163,5 +163,5 @@ class WillConfigSerializer(serializers.ModelSerializer):
 class MessageSerializer(serializers.ModelSerializer):
     class Meta:
         model = Message
-        fields = ['id', 'content', 'created_at', 'ip_address']
-        read_only_fields = ['id', 'created_at', 'ip_address']
+        fields = ['id', 'content', 'created_at', 'ip_address', 'location']
+        read_only_fields = ['id', 'created_at', 'ip_address', 'location']
