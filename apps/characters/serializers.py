@@ -81,7 +81,7 @@ class CharacterDisplaySerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Character
-        fields = ['name', 'avatar', 'bio', 'status_config', 'is_owner']
+        fields = ['name', 'avatar', 'bio', 'status_config', 'is_owner', 'experience']
         read_only_fields = fields 
 
     def get_is_owner(self, obj):
