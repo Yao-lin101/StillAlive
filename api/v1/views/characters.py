@@ -123,10 +123,10 @@ class SurvivorsListView(generics.ListAPIView):
             # 获取角色最新状态
             latest_statuses = CharacterStatus.get_latest_status(character)
             
-            # 获取最新更新时间
+            # 获取最新更新时间,非定时更新
             last_updated = None
             for status_item in latest_statuses:
-                if status_item.status_type == 'vital_signs':
+                if status_item.status_type != 'other':
                     last_updated = status_item.timestamp
                     break
             
