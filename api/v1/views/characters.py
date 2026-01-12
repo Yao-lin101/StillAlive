@@ -13,6 +13,25 @@ import logging
 import json
 import urllib.request
 import urllib.error
+import os
+
+# ip2region 本地库支持
+XDB_SEARCHER = None
+XDB_PATH = os.path.join(settings.BASE_DIR, 'data', 'ip2region.xdb')
+
+try:
+    from ip2region import searcher as ip2region_searcher
+    from ip2region.util import IPv4 as IP2REGION_IPV4
+    # 检查文件是否存在且大小合理 (>100KB 才是有效的 xdb 文件)
+    if os.path.exists(XDB_PATH) and os.path.getsize(XDB_PATH) > 100000:
+        XDB_SEARCHER = ip2region_searcher.new_with_file_only(IP2REGION_IPV4, XDB_PATH)
+        logger.info(f"ip2region initialized with {XDB_PATH}")
+    else:
+        logger.warning(f"ip2region.xdb not found or invalid at {XDB_PATH}")
+except ImportError as e:
+    logger.warning(f"ip2region not installed: {e}")
+except Exception as e:
+    logger.error(f"Failed to initialize ip2region: {e}")
 
 from apps.characters.models import Character, CharacterStatus, WillConfig, Message
 from apps.characters.serializers import (
@@ -378,25 +397,41 @@ class CharacterMessageView(generics.ListCreateAPIView):
         return Message.objects.filter(character=character)[:50]
 
     def get_location_from_ip(self, ip):
-        """通过在线API获取IP归属地"""
+        """通过本地ip2region库获取IP归属地"""
         if not ip or ip in ['127.0.0.1', 'localhost', '::1']:
             return '本地'
-            
+        
+        # 优先使用本地 ip2region 库
+        if XDB_SEARCHER is not None:
+            try:
+                result = XDB_SEARCHER.search(ip)
+                
+                if result:
+                    # ip2region 返回格式: "国家|区域|省份|城市|ISP"
+                    parts = result.split('|')
+                    province = parts[2] if len(parts) > 2 and parts[2] != '0' else ''
+                    city = parts[3] if len(parts) > 3 and parts[3] != '0' else ''
+                    
+                    if province == city:
+                        return province if province else None
+                    location = f"{province}{city}".strip()
+                    return location if location else None
+            except Exception as e:
+                logger.error(f"ip2region lookup failed for {ip}: {e}")
+        
+        # 回退到在线 API
         try:
-            # 使用 ip-api.com (免费，限制45req/min)
             url = f"http://ip-api.com/json/{ip}?lang=zh-CN"
-            # 设置超时以防止阻塞
             with urllib.request.urlopen(url, timeout=2) as response:
                 data = json.loads(response.read().decode())
                 if data.get('status') == 'success':
                     region = data.get('regionName', '')
                     city = data.get('city', '')
-                    # 避免显示 "Beijing Beijing"
                     if region == city:
                         return region
                     return f"{region} {city}".strip()
         except Exception as e:
-            logger.error(f"Failed to resolve IP {ip}: {e}")
+            logger.error(f"Online IP lookup failed for {ip}: {e}")
             
         return None
 
