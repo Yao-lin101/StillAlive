@@ -421,7 +421,8 @@ def analyze_with_llm(aggregated_data, character_name):
 直接输出 Markdown 格式，不要有其他说明文字：
 
 ```markdown
-# 【几字短评】
+# 几字短评
+[总结：用2-3句话锐评用户这一天的活动]
 
 ## 作息诊断
 [锐评用户的作息时间，2-3句话，适当使用 emoji]
