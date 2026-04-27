@@ -326,7 +326,6 @@ def analyze_with_llm(aggregated_data, character_name, persona=None):
    - 只能获取**前台运行**的应用状态，无法获取后台状态。
    - 某个应用（如音乐、下载、视频）在数据中只出现一次，可能意味着它一直在后台运行。不要错误推断"只使用了一次"或"只用了几分钟"。
    - 步数是全天累计值（按小时分布的数据表示"截至该小时的总步数"），切勿将其误解为"单独某个小时走出的步数"然后进行累加计算。
-   - 若"数据截止时间"不是00:00，说明当天尚未结束，后续还会更新。
 4. 时区：所有时间均为北京时间。
 """
 
@@ -335,14 +334,18 @@ def analyze_with_llm(aggregated_data, character_name, persona=None):
         if persona and persona.strip():
             user_prompt += f"\n## 角色背景\n{persona.strip()}\n请结合上述人设背景进行分析，使锐评更贴合角色。\n"
 
+        cutoff_time_str = data_summary.get('data_cutoff_time', '未知')
         user_prompt += f"""
 ## 数据概览
 - 总记录数: {data_summary['total_records']}
 - 活动小时: {data_summary['active_hours']}
 - 首次活动时间: {data_summary.get('first_activity_hour', '未知')} 点
 - 最后活动时间: {data_summary.get('last_activity_hour', '未知')} 点
-- 数据截止时间: {data_summary.get('data_cutoff_time', '未知')}
+- 数据截止时间: {cutoff_time_str}
 """
+        
+        if cutoff_time_str != '未知' and 'T00:00:00' not in cutoff_time_str:
+            user_prompt += "\n**【系统强烈提示】当前这一天还没结束！数据只同步到了上述截止时间。你的分析必须处于“正在直播”的视角，评价时要用“截至目前”，绝对不能作结案陈词（比如“今天你一共就走了xx步”、“到这就收工了”），而是要推测他接下去会干嘛。**\n"
         
         if data_summary['phone_app_summary']:
             user_prompt += f"\n## 手机应用（总计前20）\n{json.dumps(data_summary['phone_app_summary'], ensure_ascii=False)}\n"
