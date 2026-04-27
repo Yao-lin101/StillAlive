@@ -631,10 +631,11 @@ def generate_daily_reports(self):
     - 如果日报已存在且无新数据：跳过 LLM 分析
     """
     now = timezone.now()
-    target_date = now.date()
+    local_now = timezone.localtime(now)
+    target_date = local_now.date()
     data_cutoff_time = now
     
-    logger.info(f"Starting daily report generation for {target_date.isoformat()} at {data_cutoff_time.isoformat()}")
+    logger.info(f"Starting daily report generation for {target_date.isoformat()} (local date) at {data_cutoff_time.isoformat()} (UTC)")
     
     active_configs = DailyReportConfig.objects.filter(
         is_enabled=True
