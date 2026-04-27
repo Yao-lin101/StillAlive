@@ -326,7 +326,7 @@ def analyze_with_llm(aggregated_data, character_name, persona=None):
    - 只能获取**前台运行**的应用状态，无法获取后台状态。
    - 某个应用（如音乐、下载、视频）在数据中只出现一次，可能意味着它一直在后台运行。不要错误推断"只使用了一次"或"只用了几分钟"。
    - 步数是全天累计值（按小时分布的数据表示"截至该小时的总步数"），切勿将其误解为"单独某个小时走出的步数"然后进行累加计算。
-   - 若"数据截止时间"未满24小时，说明当天尚未结束，切勿将"最后活动时间"误判为用户已睡觉或收工。
+   - 若"数据截止时间"不是00:00，说明当天尚未结束，后续还会更新。
 4. 时区：所有时间均为北京时间。
 """
 
@@ -514,6 +514,17 @@ def analyze_with_llm(aggregated_data, character_name, persona=None):
         
         logger.info(f"Cleaned text length: {len(result_text)}")
         
+        # 自动在结尾拼接数据截止时间，提升展示效果
+        cutoff_time_str = data_summary.get('data_cutoff_time')
+        if cutoff_time_str:
+            try:
+                dt = timezone.datetime.fromisoformat(cutoff_time_str)
+                # 由于已经是 localtime，可以直接提取出时分等信息
+                formatted_time = dt.strftime('%Y-%m-%d %H:%M')
+                result_text += f"\n\n---\n*数据截止至：{formatted_time}*"
+            except Exception:
+                result_text += f"\n\n---\n*数据截止至：{cutoff_time_str}*"
+        
         return {
             'markdown': result_text
         }
@@ -633,13 +644,19 @@ def generate_daily_reports(self):
                     if existing_last_record_time and new_last_record_time:
                         if new_last_record_time <= existing_last_record_time:
                             has_new_data = False
-                            logger.info(f"No new data for {character.name} on {target_date} since {existing_last_record_time}, skipping LLM analysis")
+                            
+                    # 判断是否为“昨日总结”时间点（0点~1点且处理的是昨天的数据）
+                    is_final_summary = (target_date == yesterday and local_now.hour == 0)
                     
-                    if not has_new_data:
+                    if not has_new_data and not is_final_summary:
+                        logger.info(f"No new data for {character.name} on {target_date} since {existing_last_record_time}, skipping LLM analysis")
                         skipped_count += 1
                         continue
                     
-                    logger.info(f"New data found for {character.name} on {target_date}, updating report")
+                    if is_final_summary and not has_new_data:
+                        logger.info(f"Triggering final LLM summary for {character.name} on {target_date} despite no new data")
+                    else:
+                        logger.info(f"New data found for {character.name} on {target_date}, updating report")
                     
                     analysis_result = analyze_with_llm(aggregated_data, character.name, config.persona)
                     
