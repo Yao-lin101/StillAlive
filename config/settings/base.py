@@ -203,3 +203,8 @@ CELERY_TASK_RETRY_POLICY = {
     'interval_step': 0.2,
     'interval_max': 0.5,
 }
+
+# Anthropic AI Configuration
+ANTHROPIC_API_KEY = os.environ.get('ANTHROPIC_API_KEY', '')
+ANTHROPIC_MODEL = os.environ.get('ANTHROPIC_MODEL', 'claude-3-5-sonnet-20241022')
+ANTHROPIC_BASE_URL = os.environ.get('ANTHROPIC_BASE_URL', None)

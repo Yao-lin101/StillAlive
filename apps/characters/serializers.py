@@ -1,6 +1,6 @@
 from rest_framework import serializers
 from django.conf import settings
-from .models import Character, CharacterStatus, WillConfig, Message
+from .models import Character, CharacterStatus, WillConfig, Message, DailyReportConfig, DailyReport
 import logging
 import json
 
@@ -78,10 +78,11 @@ class CharacterDetailSerializer(CharacterSerializer):
 class CharacterDisplaySerializer(serializers.ModelSerializer):
     """用于公开展示的角色序列化器"""
     is_owner = serializers.SerializerMethodField()
+    uid = serializers.SerializerMethodField()
 
     class Meta:
         model = Character
-        fields = ['name', 'avatar', 'bio', 'status_config', 'is_owner', 'experience']
+        fields = ['uid', 'name', 'avatar', 'bio', 'status_config', 'is_owner', 'experience']
         read_only_fields = fields 
 
     def get_is_owner(self, obj):
@@ -89,6 +90,12 @@ class CharacterDisplaySerializer(serializers.ModelSerializer):
         if request and request.user.is_authenticated:
             return obj.user == request.user
         return False 
+
+    def get_uid(self, obj):
+        request = self.context.get('request')
+        if request and request.user.is_authenticated and obj.user == request.user:
+            return str(obj.uid)
+        return None 
 
 class CharacterStatusSerializer(serializers.ModelSerializer):
     class Meta:
@@ -166,3 +173,43 @@ class MessageSerializer(serializers.ModelSerializer):
         model = Message
         fields = ['id', 'content', 'created_at', 'ip_address', 'location']
         read_only_fields = ['id', 'created_at', 'ip_address', 'location']
+
+
+class DailyReportConfigSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = DailyReportConfig
+        fields = [
+            'is_enabled',
+            'visibility',
+            'field_mappings',
+            'created_at',
+            'updated_at'
+        ]
+        read_only_fields = ['created_at', 'updated_at']
+
+    def validate_field_mappings(self, value):
+        """验证字段映射格式"""
+        if not isinstance(value, dict):
+            raise serializers.ValidationError("字段映射必须是一个对象")
+        
+        allowed_keys = {'phone_app', 'computer_app', 'steps'}
+        for key in value.keys():
+            if key not in allowed_keys:
+                raise serializers.ValidationError(f"不支持的字段类型: {key}，支持的类型: phone_app, computer_app, steps")
+        
+        return value
+
+
+class DailyReportSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = DailyReport
+        fields = [
+            'id',
+            'date',
+            'is_hidden',
+            'raw_data',
+            'analysis_result',
+            'created_at',
+            'updated_at'
+        ]
+        read_only_fields = ['id', 'date', 'raw_data', 'analysis_result', 'created_at', 'updated_at']
