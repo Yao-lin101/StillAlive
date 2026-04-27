@@ -23,6 +23,10 @@ app.conf.beat_schedule = {
         'task': 'apps.characters.tasks.check_wills',
         'schedule': crontab(minute=0),  # 每小时执行一次
     },
+    'generate-daily-reports': {
+        'task': 'apps.characters.tasks.generate_daily_reports',
+        'schedule': crontab(minute=5),  # 每小时第 5 分钟执行（给状态同步留时间）
+    },
 }
 
 @app.task(bind=True)

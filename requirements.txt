@@ -1,3 +1,4 @@
+anthropic==0.45.2
 asgiref==3.8.1
 celery==5.3.6
 Django==5.1.6

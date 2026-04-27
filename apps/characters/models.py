@@ -198,3 +198,78 @@ class Message(models.Model):
         verbose_name = '留言'
         verbose_name_plural = '留言'
 
+
+class DailyReportConfig(models.Model):
+    VISIBILITY_CHOICES = [
+        ('private', '仅自己可见'),
+        ('public', '所有人可见'),
+    ]
+
+    character = models.OneToOneField(Character, on_delete=models.CASCADE, related_name='daily_report_config')
+    is_enabled = models.BooleanField(default=False, help_text='是否启用日报分析')
+    visibility = models.CharField(
+        max_length=20,
+        choices=VISIBILITY_CHOICES,
+        default='private',
+        help_text='日报可见范围'
+    )
+    field_mappings = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text='字段映射关系，格式: {"phone_app": "状态key", "computer_app": "状态key", "steps": "状态key"}'
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=['character', 'is_enabled']),
+        ]
+        verbose_name = '日报配置'
+        verbose_name_plural = '日报配置'
+
+    def __str__(self):
+        return f"{self.character.name}的日报配置"
+
+
+class DailyReport(models.Model):
+    character = models.ForeignKey(Character, on_delete=models.CASCADE, related_name='daily_reports')
+    date = models.DateField(help_text='日报日期')
+    is_hidden = models.BooleanField(default=False, help_text='是否隐藏（隐藏后仅自己可见）')
+    raw_data = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text='原始聚合数据'
+    )
+    analysis_result = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text='AI分析结果'
+    )
+    last_record_time = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text='最新状态数据的时间，用于判断是否有新数据'
+    )
+    data_cutoff_time = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text='数据截止时间（任务执行时的时间）'
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-date']
+        indexes = [
+            models.Index(fields=['character', '-date']),
+            models.Index(fields=['character', 'date']),
+            models.Index(fields=['date']),
+        ]
+        unique_together = ['character', 'date']
+        verbose_name = '日报'
+        verbose_name_plural = '日报'
+
+    def __str__(self):
+        return f"{self.character.name} - {self.date}"
+
