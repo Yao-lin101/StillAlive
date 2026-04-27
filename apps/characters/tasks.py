@@ -165,8 +165,8 @@ def aggregate_status_data(character, field_mappings, target_date, end_datetime=N
     aggregated = {
         'date': target_date.isoformat(),
         'total_records': statuses.count(),
-        'last_record_time': latest_status.timestamp.isoformat() if latest_status else None,
-        'data_cutoff_time': end_datetime.isoformat(),
+        'last_record_time': timezone.localtime(latest_status.timestamp).isoformat() if latest_status else None,
+        'data_cutoff_time': timezone.localtime(end_datetime).isoformat() if timezone.is_aware(end_datetime) else end_datetime.isoformat(),
         'phone_app_usage': [],
         'computer_app_usage': [],
         'steps_data': [],
@@ -178,22 +178,24 @@ def aggregate_status_data(character, field_mappings, target_date, end_datetime=N
     steps_key = field_mappings.get('steps')
     
     for status in statuses:
+        local_timestamp = timezone.localtime(status.timestamp)
+        
         status_data = {
-            'timestamp': status.timestamp.isoformat(),
+            'timestamp': local_timestamp.isoformat(),
             'status_type': status.status_type,
             'data': status.data
         }
         aggregated['all_statuses'].append(status_data)
         
         data = status.data
-        hour = status.timestamp.hour
+        hour = local_timestamp.hour
         
         if phone_key and phone_key in data:
             value = data[phone_key]
             if value:
                 aggregated['phone_app_usage'].append({
                     'hour': hour,
-                    'timestamp': status.timestamp.isoformat(),
+                    'timestamp': local_timestamp.isoformat(),
                     'app': str(value)
                 })
         
@@ -202,7 +204,7 @@ def aggregate_status_data(character, field_mappings, target_date, end_datetime=N
             if value:
                 aggregated['computer_app_usage'].append({
                     'hour': hour,
-                    'timestamp': status.timestamp.isoformat(),
+                    'timestamp': local_timestamp.isoformat(),
                     'app': str(value)
                 })
         
@@ -211,7 +213,7 @@ def aggregate_status_data(character, field_mappings, target_date, end_datetime=N
                 steps = int(data[steps_key])
                 aggregated['steps_data'].append({
                     'hour': hour,
-                    'timestamp': status.timestamp.isoformat(),
+                    'timestamp': local_timestamp.isoformat(),
                     'steps': steps
                 })
             except (ValueError, TypeError):
@@ -259,7 +261,7 @@ def aggregate_status_data(character, field_mappings, target_date, end_datetime=N
     
     active_hours = set()
     for status in statuses:
-        active_hours.add(status.timestamp.hour)
+        active_hours.add(timezone.localtime(status.timestamp).hour)
     aggregated['active_hours'] = sorted(list(active_hours))
     
     if aggregated['active_hours']:
@@ -548,9 +550,9 @@ def generate_daily_reports(self):
     now = timezone.now()
     local_now = timezone.localtime(now)
     target_date = local_now.date()
-    data_cutoff_time = now
+    data_cutoff_time = local_now
     
-    logger.info(f"Starting daily report generation for {target_date.isoformat()} (local date) at {data_cutoff_time.isoformat()} (UTC)")
+    logger.info(f"Starting daily report generation for {target_date.isoformat()} (local date) at {data_cutoff_time.isoformat()} (local time)")
     
     active_configs = DailyReportConfig.objects.filter(
         is_enabled=True
