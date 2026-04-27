@@ -246,9 +246,7 @@ def aggregate_status_data(character, field_mappings, target_date, end_datetime=N
     if aggregated['steps_data']:
         steps_values = [item['steps'] for item in aggregated['steps_data']]
         aggregated['steps_summary'] = {
-            'min': min(steps_values) if steps_values else 0,
-            'max': max(steps_values) if steps_values else 0,
-            'last': steps_values[-1] if steps_values else 0
+            'total': steps_values[-1] if steps_values else 0
         }
         
         hourly_steps = defaultdict(list)
@@ -314,6 +312,7 @@ def analyze_with_llm(aggregated_data, character_name, persona=None):
             'phone_app_by_hour': aggregated_data.get('phone_app_by_hour', {}),
             'computer_app_by_hour': aggregated_data.get('computer_app_by_hour', {}),
             'steps_summary': aggregated_data.get('steps_summary', {}),
+            'steps_by_hour': aggregated_data.get('steps_by_hour', {}),
             'last_record_time': aggregated_data.get('last_record_time'),
             'data_cutoff_time': aggregated_data.get('data_cutoff_time')
         }
@@ -326,6 +325,7 @@ def analyze_with_llm(aggregated_data, character_name, persona=None):
 3. 数据局限性：
    - 只能获取**前台运行**的应用状态，无法获取后台状态。
    - 某个应用（如音乐、下载、视频）在数据中只出现一次，可能意味着它一直在后台运行。不要错误推断"只使用了一次"或"只用了几分钟"。
+   - 步数是全天累计值（按小时分布的数据表示"截至该小时的总步数"），切勿将其误解为"单独某个小时走出的步数"然后进行累加计算。
 4. 时区：所有时间均为北京时间。
 """
 
@@ -352,7 +352,9 @@ def analyze_with_llm(aggregated_data, character_name, persona=None):
             user_prompt += f"\n## 电脑应用（按小时）\n{json.dumps(data_summary['computer_app_by_hour'], ensure_ascii=False)}\n"
             
         if data_summary['steps_summary']:
-            user_prompt += f"\n## 步数\n- 最大: {data_summary['steps_summary'].get('max', 0)}\n- 最后记录: {data_summary['steps_summary'].get('last', 0)}\n"
+            user_prompt += f"\n## 今日总步数: {data_summary['steps_summary'].get('total', 0)}\n"
+            if data_summary.get('steps_by_hour'):
+                user_prompt += f"\n## 步数（按小时累计）\n{json.dumps(data_summary['steps_by_hour'], ensure_ascii=False)}\n"
             
         user_prompt += """
 ## 输出格式
@@ -549,10 +551,21 @@ def generate_daily_reports(self):
     """
     now = timezone.now()
     local_now = timezone.localtime(now)
-    target_date = local_now.date()
-    data_cutoff_time = local_now
+    today = local_now.date()
+    yesterday = today - timedelta(days=1)
     
-    logger.info(f"Starting daily report generation for {target_date.isoformat()} (local date) at {data_cutoff_time.isoformat()} (local time)")
+    # 确定要处理的日期
+    if local_now.hour == 0:
+        # 0点~1点（如0:05）：只收尾昨天的数据。此时今天才刚开始几分钟，数据太少会浪费大模型API
+        target_dates = [yesterday]
+    else:
+        # 1点之后：正常处理今天的数据
+        target_dates = [today]
+        # 兜底：在1点~2点再检查一次昨天，防止0点的任务因服务器宕机等原因未执行
+        if local_now.hour == 1:
+            target_dates.insert(0, yesterday)
+    
+    logger.info(f"Starting daily report generation at {local_now.isoformat()} (local time)")
     
     active_configs = DailyReportConfig.objects.filter(
         is_enabled=True
@@ -567,96 +580,103 @@ def generate_daily_reports(self):
     new_count = 0
     
     for config in active_configs:
-        try:
-            character = config.character
-            logger.info(f"Processing report for character: {character.name} (uid: {character.uid})")
-            
-            field_mappings = config.field_mappings or {}
-            
-            if not field_mappings:
-                logger.warning(f"No field mappings configured for {character.name}, skipping report")
-                skipped_count += 1
-                continue
-            
-            aggregated_data = aggregate_status_data(
-                character, 
-                field_mappings, 
-                target_date,
-                end_datetime=data_cutoff_time
-            )
-            
-            if not aggregated_data:
-                logger.info(f"No status data found for {character.name} on {target_date}")
-                skipped_count += 1
-                continue
-            
-            new_last_record_time_str = aggregated_data.get('last_record_time')
-            new_last_record_time = None
-            if new_last_record_time_str:
-                try:
-                    new_last_record_time = timezone.datetime.fromisoformat(new_last_record_time_str)
-                    if timezone.is_naive(new_last_record_time):
-                        new_last_record_time = timezone.make_aware(new_last_record_time)
-                except (ValueError, TypeError):
-                    logger.warning(f"Failed to parse last_record_time: {new_last_record_time_str}")
-            
-            existing_report = DailyReport.objects.filter(
-                character=character,
-                date=target_date
-            ).first()
-            
-            if existing_report:
-                existing_last_record_time = existing_report.last_record_time
+        for target_date in target_dates:
+            try:
+                character = config.character
+                logger.info(f"Processing report for character: {character.name} (uid: {character.uid}) on {target_date}")
                 
-                has_new_data = True
-                if existing_last_record_time and new_last_record_time:
-                    if new_last_record_time <= existing_last_record_time:
-                        has_new_data = False
-                        logger.info(f"No new data for {character.name} since {existing_last_record_time}, skipping LLM analysis")
+                field_mappings = config.field_mappings or {}
                 
-                if not has_new_data:
+                if not field_mappings:
+                    logger.warning(f"No field mappings configured for {character.name}, skipping report")
                     skipped_count += 1
                     continue
                 
-                logger.info(f"New data found for {character.name}, updating report")
+                # 如果是昨天，数据截止到今天的 00:00:00
+                if target_date == today:
+                    current_cutoff_time = local_now
+                else:
+                    current_cutoff_time = timezone.make_aware(datetime.combine(today, datetime.min.time()))
                 
-                analysis_result = analyze_with_llm(aggregated_data, character.name, config.persona)
-                
-                existing_report.raw_data = aggregated_data
-                existing_report.analysis_result = analysis_result
-                existing_report.last_record_time = new_last_record_time
-                existing_report.data_cutoff_time = data_cutoff_time
-                existing_report.save()
-                
-                updated_count += 1
-                success_count += 1
-                logger.info(f"Successfully updated report for {character.name}")
-            
-            else:
-                logger.info(f"No existing report for {character.name}, creating new report")
-                
-                analysis_result = analyze_with_llm(aggregated_data, character.name, config.persona)
-                
-                DailyReport.objects.create(
-                    character=character,
-                    date=target_date,
-                    is_hidden=False,
-                    raw_data=aggregated_data,
-                    analysis_result=analysis_result,
-                    last_record_time=new_last_record_time,
-                    data_cutoff_time=data_cutoff_time
+                aggregated_data = aggregate_status_data(
+                    character, 
+                    field_mappings, 
+                    target_date,
+                    end_datetime=current_cutoff_time
                 )
                 
-                new_count += 1
-                success_count += 1
-                logger.info(f"Successfully created report for {character.name}")
-            
-        except Exception as e:
-            failed_count += 1
-            logger.error(f"Failed to generate report for character {config.character.name if config.character else 'unknown'}: {str(e)}")
-            import traceback
-            logger.error(traceback.format_exc())
-            continue
+                if not aggregated_data:
+                    logger.info(f"No status data found for {character.name} on {target_date}")
+                    skipped_count += 1
+                    continue
+                
+                new_last_record_time_str = aggregated_data.get('last_record_time')
+                new_last_record_time = None
+                if new_last_record_time_str:
+                    try:
+                        new_last_record_time = timezone.datetime.fromisoformat(new_last_record_time_str)
+                        if timezone.is_naive(new_last_record_time):
+                            new_last_record_time = timezone.make_aware(new_last_record_time)
+                    except (ValueError, TypeError):
+                        logger.warning(f"Failed to parse last_record_time: {new_last_record_time_str}")
+                
+                existing_report = DailyReport.objects.filter(
+                    character=character,
+                    date=target_date
+                ).first()
+                
+                if existing_report:
+                    existing_last_record_time = existing_report.last_record_time
+                    
+                    has_new_data = True
+                    if existing_last_record_time and new_last_record_time:
+                        if new_last_record_time <= existing_last_record_time:
+                            has_new_data = False
+                            logger.info(f"No new data for {character.name} on {target_date} since {existing_last_record_time}, skipping LLM analysis")
+                    
+                    if not has_new_data:
+                        skipped_count += 1
+                        continue
+                    
+                    logger.info(f"New data found for {character.name} on {target_date}, updating report")
+                    
+                    analysis_result = analyze_with_llm(aggregated_data, character.name, config.persona)
+                    
+                    existing_report.raw_data = aggregated_data
+                    existing_report.analysis_result = analysis_result
+                    existing_report.last_record_time = new_last_record_time
+                    existing_report.data_cutoff_time = current_cutoff_time
+                    existing_report.save()
+                    
+                    updated_count += 1
+                    success_count += 1
+                    logger.info(f"Successfully updated report for {character.name} on {target_date}")
+                
+                else:
+                    logger.info(f"No existing report for {character.name} on {target_date}, creating new report")
+                    
+                    analysis_result = analyze_with_llm(aggregated_data, character.name, config.persona)
+                    
+                    DailyReport.objects.create(
+                        character=character,
+                        date=target_date,
+                        is_hidden=False,
+                        raw_data=aggregated_data,
+                        analysis_result=analysis_result,
+                        last_record_time=new_last_record_time,
+                        data_cutoff_time=current_cutoff_time
+                    )
+                    
+                    new_count += 1
+                    success_count += 1
+                    logger.info(f"Successfully created report for {character.name} on {target_date}")
+                
+            except Exception as e:
+                failed_count += 1
+                logger.error(f"Failed to generate report for character {config.character.name if config.character else 'unknown'} on {target_date}: {str(e)}")
+                import traceback
+                logger.error(traceback.format_exc())
+                continue
     
     logger.info(
         f"Daily report generation completed. "
@@ -665,8 +685,8 @@ def generate_daily_reports(self):
     )
     
     return {
-        'date': target_date.isoformat(),
-        'data_cutoff_time': data_cutoff_time.isoformat(),
+        'date': today.isoformat(),
+        'data_cutoff_time': local_now.isoformat(),
         'success_count': success_count,
         'new_count': new_count,
         'updated_count': updated_count,
