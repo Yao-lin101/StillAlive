@@ -269,13 +269,14 @@ def aggregate_status_data(character, field_mappings, target_date, end_datetime=N
     return aggregated
 
 
-def analyze_with_llm(aggregated_data, character_name):
+def analyze_with_llm(aggregated_data, character_name, persona=None):
     """
     使用 Anthropic API 分析数据
     
     Args:
         aggregated_data: 聚合后的数据
         character_name: 角色名称
+        persona: 角色人设信息（可选）
     
     Returns:
         dict: AI 分析结果，包含 'markdown' 字段
@@ -315,8 +316,17 @@ def analyze_with_llm(aggregated_data, character_name):
             'data_cutoff_time': aggregated_data.get('data_cutoff_time')
         }
         
-        prompt = f"""你是一位毒舌但精准的生活数据分析专家。请根据以下数据，对用户 {character_name} 在 {data_summary['date']} 的活动进行锐评式分析。
+        persona_info = ""
+        if persona and persona.strip():
+            persona_info = f"""
+## 角色人设背景：
+{persona.strip()}
 
+请在分析时结合以上人设背景信息，使分析更加贴合角色的实际情况。
+"""
+
+        prompt = f"""你是一位毒舌但精准的生活数据分析专家。请根据以下数据，对用户 {character_name} 在 {data_summary['date']} 的活动进行锐评式分析。
+{persona_info}
 ## 数据概览：
 - 总记录数: {data_summary['total_records']}
 - 活动小时: {data_summary['active_hours']}
@@ -392,6 +402,7 @@ def analyze_with_llm(aggregated_data, character_name):
   - 凌晨活跃 → 熬夜干啥？修仙？还是性压抑？
   - 白天不活跃 → 在睡觉？还是在干其他事情？
   - 某个时间段使用量激增 → 发生了什么？
+  - 某个时间段不活跃 → 是否有用其他未同步设备？
 
 **怀疑风格参考**：
 - "凌晨2点还在刷QQ和微信，这是夜猫子还是夜生活？或者是...性压抑了？"
@@ -691,7 +702,7 @@ def generate_daily_reports(self):
                 
                 logger.info(f"New data found for {character.name}, updating report")
                 
-                analysis_result = analyze_with_llm(aggregated_data, character.name)
+                analysis_result = analyze_with_llm(aggregated_data, character.name, config.persona)
                 
                 existing_report.raw_data = aggregated_data
                 existing_report.analysis_result = analysis_result
@@ -706,7 +717,7 @@ def generate_daily_reports(self):
             else:
                 logger.info(f"No existing report for {character.name}, creating new report")
                 
-                analysis_result = analyze_with_llm(aggregated_data, character.name)
+                analysis_result = analyze_with_llm(aggregated_data, character.name, config.persona)
                 
                 DailyReport.objects.create(
                     character=character,

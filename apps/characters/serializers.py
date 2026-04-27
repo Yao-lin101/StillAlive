@@ -182,6 +182,7 @@ class DailyReportConfigSerializer(serializers.ModelSerializer):
             'is_enabled',
             'visibility',
             'field_mappings',
+            'persona',
             'created_at',
             'updated_at'
         ]

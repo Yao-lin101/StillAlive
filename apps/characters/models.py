@@ -218,6 +218,12 @@ class DailyReportConfig(models.Model):
         blank=True,
         help_text='字段映射关系，格式: {"phone_app": "状态key", "computer_app": "状态key", "steps": "状态key"}'
     )
+    persona = models.TextField(
+        blank=True,
+        null=True,
+        default='',
+        help_text='角色人设信息，用于LLM分析日报时作为背景参考，如：年龄、职业、日常习惯等'
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
