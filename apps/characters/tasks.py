@@ -316,18 +316,24 @@ def analyze_with_llm(aggregated_data, character_name, persona=None):
             'data_cutoff_time': aggregated_data.get('data_cutoff_time')
         }
         
-        persona_info = ""
-        if persona and persona.strip():
-            persona_info = f"""
-## 角色人设背景：
-{persona.strip()}
+        system_prompt = """你是一位毒舌但精准的生活数据分析专家，负责对用户的日常活动数据进行锐评式分析。
 
-请在分析时结合以上人设背景信息，使分析更加贴合角色的实际情况。
+## 硬性约束
+1. 语言风格：毒舌、尖锐、抽象、有梗。口语化，可适当使用网络流行语。多用 emoji 增加表现力（如🌙🌅🤔🤡💀📱）。
+2. 分析原则：基于实际数据进行合理怀疑与大胆推测（使用"可能"、"难道是"等词），但绝不凭空捏造。
+3. 数据局限性：
+   - 只能获取**前台运行**的应用状态，无法获取后台状态。
+   - 某个应用（如音乐、下载、视频）在数据中只出现一次，可能意味着它一直在后台运行。不要错误推断"只使用了一次"或"只用了几分钟"。
+4. 时区：所有时间均为北京时间。
 """
 
-        prompt = f"""你是一位毒舌但精准的生活数据分析专家。请根据以下数据，对用户 {character_name} 在 {data_summary['date']} 的活动进行锐评式分析。
-{persona_info}
-## 数据概览：
+        user_prompt = f"请对用户 {character_name} 在 {data_summary['date']} 的活动进行分析。\n"
+        
+        if persona and persona.strip():
+            user_prompt += f"\n## 角色背景\n{persona.strip()}\n请结合上述人设背景进行分析，使锐评更贴合角色。\n"
+
+        user_prompt += f"""
+## 数据概览
 - 总记录数: {data_summary['total_records']}
 - 活动小时: {data_summary['active_hours']}
 - 首次活动时间: {data_summary.get('first_activity_hour', '未知')} 点
@@ -336,140 +342,49 @@ def analyze_with_llm(aggregated_data, character_name, persona=None):
 """
         
         if data_summary['phone_app_summary']:
-            prompt += f"""
-手机应用使用统计（按使用次数）:
-{json.dumps(data_summary['phone_app_summary'], ensure_ascii=False, indent=2)}
-
-手机应用按小时分布:
-{json.dumps(data_summary['phone_app_by_hour'], ensure_ascii=False, indent=2)}
-"""
-        
+            user_prompt += f"\n## 手机应用（总计前20）\n{json.dumps(data_summary['phone_app_summary'], ensure_ascii=False)}\n"
+            user_prompt += f"\n## 手机应用（按小时）\n{json.dumps(data_summary['phone_app_by_hour'], ensure_ascii=False)}\n"
+            
         if data_summary['computer_app_summary']:
-            prompt += f"""
-电脑应用使用统计（按使用次数）:
-{json.dumps(data_summary['computer_app_summary'], ensure_ascii=False, indent=2)}
-
-电脑应用按小时分布:
-{json.dumps(data_summary['computer_app_by_hour'], ensure_ascii=False, indent=2)}
-"""
-        
+            user_prompt += f"\n## 电脑应用（总计前20）\n{json.dumps(data_summary['computer_app_summary'], ensure_ascii=False)}\n"
+            user_prompt += f"\n## 电脑应用（按小时）\n{json.dumps(data_summary['computer_app_by_hour'], ensure_ascii=False)}\n"
+            
         if data_summary['steps_summary']:
-            prompt += f"""
-步数统计:
-- 最大步数: {data_summary['steps_summary'].get('max', 0)}
-- 最后记录步数: {data_summary['steps_summary'].get('last', 0)}
-"""
-        
-        prompt += """
-## 分析要求：
-
-### 1. 几字短评标题（必须）
-根据用户当天的整体活动情况，用一个 **2-4字的短评** 作为主标题。短评要尖锐、有梗、能概括用户当日特征。
-
-**可选方向参考**：
-- 正常作息：「像个人」「有点拟人」「平平无奇」
-- 熬夜党：「夜猫子」「修仙模式」「凌晨战神」「阴间作息」
-- 反常人类：「不像人类」「神人日常」「离谱作息」「谜之行为」
-- 数据不足：「数据太少」「不知所踪」「人间蒸发」
-- 其他：「肝帝日常」「摸鱼达人」「社交达人」「死肥宅」
-
-**注意**：不要直接使用上面的词汇，要根据数据特征创造更精准、更有梗的短评。
-
-### 2. 锐评式分析
-用毒舌但精准的语言分析用户的作息和活动。要抽象、有冲击力、让人印象深刻。
-
-**分析维度**：
-- **作息诊断**：这是什么物种的作息？人类？夜行动物？修仙者？
-- **活动画像**：从应用使用情况推断用户是什么类型的人？
-- **异常亮点**：有没有反常的时间点或反常的行为？
-
-**锐评风格参考**：
-- 不要说"用户在凌晨2点还在使用手机"，要说"凌晨两点还在刷手机，这是把夜晚当成白天过了？"
-- 不要说"用户使用最多的应用是微信"，要说"微信刷得最勤，这是在跟谁聊？还是在刷朋友圈刷到停不下来？"
-- 不要说"用户步数很少"，要说"步数低得离谱，这是在床上躺了一天？还是腿断了？"
-
-### 3. 合理怀疑（非常重要）
-根据用户的行为进行合理的推测和怀疑，让分析更有故事性和趣味性。
-
-**怀疑维度**：
-- **应用用途推测**：用户打开某个应用是在做什么？
-  - 浏览器/搜索类应用 → 在查什么？学习？摸鱼？还是在查某些不可告人的内容？
-  - 社交类应用 → 在跟谁聊？聊什么？
-  - 视频/娱乐类应用 → 在刷什么？
-  - 某些"工具类"应用 → 懂的都懂，合理怀疑
-  
-- **时间段推测**：用户在某个时间段为什么活跃/不活跃？
-  - 凌晨活跃 → 熬夜干啥？修仙？还是性压抑？
-  - 白天不活跃 → 在睡觉？还是在干其他事情？
-  - 某个时间段使用量激增 → 发生了什么？
-  - 某个时间段不活跃 → 是否有用其他未同步设备？
-
-**怀疑风格参考**：
-- "凌晨2点还在刷QQ和微信，这是夜猫子还是夜生活？或者是...性压抑了？"
-- "健康应用使用量最大，这是在养生？还是身体出了什么问题？"
-- "某个时间段使用了快捷指令，这是在自动化什么操作？"
-- "步数几乎为零，这是躺平了一整天？还是...腿断了？"
-
-**注意**：怀疑要基于实际数据，不要凭空捏造，但可以大胆推测。使用"可能"、"也许"、"难道是"等词汇增加神秘感。
-
-### 4. Emoji 表情使用
-在分析中适当使用 emoji 表情，让内容更生动、更抽象。
-
-**推荐表情**：
-- 时间相关：🌙 🌅 ⏰ ⏳
-- 情绪相关：🤔 😏 😱 🤡 💀
-- 活动相关：📱 💻 🚶‍♂️ 🍤 🔞
-- 神秘相关：👀 🤫 🔮 🕵️‍♂️
-
-**使用示例**：
-- "凌晨两点还在刷手机 🌙，这是把夜晚当成白天过了？"
-- "微信刷得最勤 📱，这是在跟谁聊？还是在刷朋友圈刷到停不下来？"
-- "步数低得离谱 🚶‍♂️，这是在床上躺了一天？还是腿断了？"
-- "健康应用使用量最大 🍤，这是在养生？还是身体出了什么问题？"
-
-### 5. 输出格式
-
-直接输出 Markdown 格式，不要有其他说明文字：
+            user_prompt += f"\n## 步数\n- 最大: {data_summary['steps_summary'].get('max', 0)}\n- 最后记录: {data_summary['steps_summary'].get('last', 0)}\n"
+            
+        user_prompt += """
+## 输出格式
+请直接输出 Markdown 格式，不要包含任何说明文字：
 
 ```markdown
-# 几字短评
-[总结：用2-3句话锐评用户这一天的活动]
+# [2-4字短评，如：修仙模式/不知所踪/平平无奇]
+[1-2句话总结今日整体活动，需尖锐、有冲击力]
 
 ## 作息诊断
-[锐评用户的作息时间，2-3句话，适当使用 emoji]
+[2-3句话锐评作息时间，是人类、夜猫子还是修仙者？]
 
 ## 活动画像
-[从应用使用分析用户类型，2-3句话，适当使用 emoji]
+[2-3句话从应用使用情况推测用户当前的状态（如摸鱼/学习/社交等）]
 
-## 异常亮点
-[列出反常的时间点或行为，用锐评式语言。如果没有异常，就说"今日无异常亮点——平平无奇的一天"，适当使用 emoji]
+## 合理怀疑
+[2-3句话寻找反常时间点或行为进行推测。若无反常则评"平平无奇"]
 ```
+"""
 
-**注意事项**：
-- 所有时间以北京时间为准
-- 分析要基于实际数据，不要凭空捏造
-- 使用中文，要口语化、有冲击力
-- 可以适当使用网络流行语，但不要过度
-- 数据截止时间已给出，如果时间还早，可以说"数据截至XX点，后续可能还有更新"
-- 合理怀疑时可以大胆推测，但要用"可能"、"也许"等词汇
-- 每个部分都可以适当使用 emoji 表情
-
-**重要：数据局限性说明**：
-- 本系统只能获取**前台运行**的应用状态，**无法获取后台运行**的应用状态
-- 某个应用可能只在数据中出现一次，但这并不意味着用户只使用了它一次——它可能一直在后台运行（如音乐播放器、下载工具等）
-- 例如：如果"网易云音乐"只在某小时出现一次，不要说"只开了一次"或"听了两首歌就停了"，而要说"网易云音乐曾在前台运行过，可能一直在后台播放"
-- 对于音乐类应用、视频类应用、下载工具等，应该考虑它们可能在后台持续运行，只是前台状态只同步了一次
-- 不要错误地推断"用户只使用了XX分钟"或"只使用了一次"——数据只能说明"该应用曾在前台出现过"
-
-现在开始你的锐评分析："""
+        logger.info("=== LLM Analysis Prompt Start ===")
+        logger.info(f"System Prompt:\n{system_prompt}")
+        logger.info(f"User Prompt:\n{user_prompt}")
+        logger.info("=== LLM Analysis Prompt End ===")
 
         response = client.messages.create(
             model=model,
+            system=system_prompt,
+            temperature=0.8,
             max_tokens=4096,
             messages=[
                 {
                     "role": "user",
-                    "content": prompt
+                    "content": user_prompt
                 }
             ]
         )
