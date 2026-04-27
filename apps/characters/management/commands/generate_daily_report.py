@@ -56,10 +56,11 @@ class Command(BaseCommand):
             return
 
         now = timezone.now()
-        today = now.date()
+        local_now = timezone.localtime(now)
+        today = local_now.date()
         
         if target_date == today:
-            data_cutoff_time = now
+            data_cutoff_time = local_now
             self.stdout.write(
                 self.style.NOTICE(
                     f'Generating report for today ({target_date}), data cutoff at {data_cutoff_time.isoformat()}'
@@ -70,7 +71,7 @@ class Command(BaseCommand):
             data_cutoff_time = start_of_day + timedelta(days=1)
             self.stdout.write(
                 self.style.SUCCESS(
-                    f'Generating daily report for character {character_uid} on {target_date.isoformat()}'
+                    f'Generating daily report for character {character_uid} on {target_date.isoformat()} (cutoff: {data_cutoff_time.isoformat()})'
                 )
             )
 
