@@ -213,3 +213,27 @@ class DailyReportSerializer(serializers.ModelSerializer):
             'updated_at'
         ]
         read_only_fields = ['id', 'date', 'raw_data', 'analysis_result', 'created_at', 'updated_at']
+
+
+class DailyReportDetailSerializer(serializers.ModelSerializer):
+    markdown = serializers.SerializerMethodField()
+    error = serializers.SerializerMethodField()
+
+    class Meta:
+        model = DailyReport
+        fields = [
+            'date',
+            'is_hidden',
+            'markdown',
+            'error'
+        ]
+
+    def get_markdown(self, obj):
+        if obj.analysis_result and isinstance(obj.analysis_result, dict):
+            return obj.analysis_result.get('markdown', '')
+        return ''
+
+    def get_error(self, obj):
+        if obj.analysis_result and isinstance(obj.analysis_result, dict):
+            return obj.analysis_result.get('error')
+        return None

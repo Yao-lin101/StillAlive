@@ -745,9 +745,54 @@ def get_daily_report_detail(request, code):
             status=status.HTTP_404_NOT_FOUND
         )
     
-    from apps.characters.serializers import DailyReportSerializer
-    serializer = DailyReportSerializer(report)
+    from apps.characters.serializers import DailyReportDetailSerializer
+    serializer = DailyReportDetailSerializer(report)
     return Response(serializer.data)
+
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def get_daily_report_config_public(request, code):
+    """
+    公开获取日报配置（用于展示页判断是否显示日报分析页签）
+    
+    GET /api/v1/d/<code>/reports/config/
+    """
+    from apps.characters.models import DailyReportConfig
+    
+    character = get_object_or_404(Character, display_code=code, is_active=True)
+    is_owner = request.user.is_authenticated and character.user == request.user
+    
+    try:
+        config = DailyReportConfig.objects.get(character=character)
+        
+        # 如果未启用，返回 is_enabled: false
+        if not config.is_enabled:
+            return Response({
+                'is_enabled': False,
+                'is_visible': False
+            })
+        
+        # 如果是私有的且当前用户不是所有者，返回不可见
+        if config.visibility == 'private' and not is_owner:
+            return Response({
+                'is_enabled': True,
+                'is_visible': False,
+                'visibility': config.visibility
+            })
+        
+        # 可见
+        return Response({
+            'is_enabled': True,
+            'is_visible': True,
+            'visibility': config.visibility,
+            'is_owner': is_owner
+        })
+    except DailyReportConfig.DoesNotExist:
+        return Response({
+            'is_enabled': False,
+            'is_visible': False
+        })
 
 
 @api_view(['POST'])

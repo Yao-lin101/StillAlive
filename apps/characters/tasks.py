@@ -443,6 +443,13 @@ def analyze_with_llm(aggregated_data, character_name):
 - 合理怀疑时可以大胆推测，但要用"可能"、"也许"等词汇
 - 每个部分都可以适当使用 emoji 表情
 
+**重要：数据局限性说明**：
+- 本系统只能获取**前台运行**的应用状态，**无法获取后台运行**的应用状态
+- 某个应用可能只在数据中出现一次，但这并不意味着用户只使用了它一次——它可能一直在后台运行（如音乐播放器、下载工具等）
+- 例如：如果"网易云音乐"只在某小时出现一次，不要说"只开了一次"或"听了两首歌就停了"，而要说"网易云音乐曾在前台运行过，可能一直在后台播放"
+- 对于音乐类应用、视频类应用、下载工具等，应该考虑它们可能在后台持续运行，只是前台状态只同步了一次
+- 不要错误地推断"用户只使用了XX分钟"或"只使用了一次"——数据只能说明"该应用曾在前台出现过"
+
 现在开始你的锐评分析："""
 
         response = client.messages.create(
@@ -526,6 +533,55 @@ def analyze_with_llm(aggregated_data, character_name):
             }
         
         logger.info(f"Successfully extracted text, length: {len(result_text)}")
+        
+        # 清理 LLM 回复格式
+        # 情况 1：被 ```markdown 或 ``` 包裹
+        import re
+        
+        # 检测是否被 ```markdown 或 ``` 包裹
+        # 匹配格式：```markdown\n...\n``` 或 ```\n...\n```
+        result_text = result_text.strip()
+        
+        # 情况 1：被 ```markdown 包裹
+        markdown_match = re.match(
+            r'^```markdown\s*\n(.*?)\n```\s*$',
+            result_text,
+            re.DOTALL
+        )
+        if markdown_match:
+            result_text = markdown_match.group(1).strip()
+            logger.info("Removed ```markdown code block wrapper")
+        
+        # 情况 2：被 ``` 包裹（不带 markdown 标签）
+        else:
+            code_block_match = re.match(
+                r'^```\s*\n(.*?)\n```\s*$',
+                result_text,
+                re.DOTALL
+            )
+            if code_block_match:
+                result_text = code_block_match.group(1).strip()
+                logger.info("Removed ``` code block wrapper")
+        
+        # 情况 3：开头有 ```markdown 或 ``` 但结尾没有（不完整的代码块）
+        if result_text.startswith('```markdown'):
+            result_text = result_text[len('```markdown'):].strip()
+            if result_text.startswith('\n'):
+                result_text = result_text[1:].strip()
+            logger.info("Removed leading ```markdown")
+        
+        elif result_text.startswith('```'):
+            result_text = result_text[3:].strip()
+            if result_text.startswith('\n'):
+                result_text = result_text[1:].strip()
+            logger.info("Removed leading ```")
+        
+        # 情况 4：结尾有 ```
+        if result_text.endswith('```'):
+            result_text = result_text[:-3].strip()
+            logger.info("Removed trailing ```")
+        
+        logger.info(f"Cleaned text length: {len(result_text)}")
         
         return {
             'markdown': result_text

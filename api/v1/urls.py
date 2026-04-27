@@ -10,6 +10,7 @@ from .views.characters import (
     WillConfigViewSet, SurvivorsListView, CharacterMessageView,
     CharacterMessageDetailView, DailyReportConfigViewSet,
     get_daily_report_dates, get_daily_report_detail,
+    get_daily_report_config_public,
     toggle_daily_report_hidden, delete_daily_report
 )
 
@@ -51,6 +52,7 @@ urlpatterns = [
     path('characters/<str:code>/messages/<int:pk>/', CharacterMessageDetailView.as_view(), name='character-message-detail'),
     
     # 日报公开 API（放在 character-display 之前）
+    path('d/<str:code>/reports/config/', get_daily_report_config_public, name='daily-report-config-public'),
     path('d/<str:code>/reports/dates/', get_daily_report_dates, name='daily-report-dates'),
     path('d/<str:code>/reports/detail/', get_daily_report_detail, name='daily-report-detail'),
     
