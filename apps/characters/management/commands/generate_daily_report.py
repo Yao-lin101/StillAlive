@@ -32,12 +32,18 @@ class Command(BaseCommand):
             action='store_true',
             help='Skip AI analysis (for testing purposes)'
         )
+        parser.add_argument(
+            '--update',
+            action='store_true',
+            help='Update existing report instead of deleting (use with --force to overwrite)'
+        )
 
     def handle(self, *args, **options):
         character_uid = options['character_uid']
         date_str = options['date']
         force = options['force']
         no_ai = options['no_ai']
+        update_mode = options['update']
 
         try:
             target_date = datetime.strptime(date_str, '%Y-%m-%d').date()
@@ -49,11 +55,24 @@ class Command(BaseCommand):
             )
             return
 
-        self.stdout.write(
-            self.style.SUCCESS(
-                f'Generating daily report for character {character_uid} on {target_date.isoformat()}'
+        now = timezone.now()
+        today = now.date()
+        
+        if target_date == today:
+            data_cutoff_time = now
+            self.stdout.write(
+                self.style.NOTICE(
+                    f'Generating report for today ({target_date}), data cutoff at {data_cutoff_time.isoformat()}'
+                )
             )
-        )
+        else:
+            start_of_day = timezone.make_aware(datetime.combine(target_date, datetime.min.time()))
+            data_cutoff_time = start_of_day + timedelta(days=1)
+            self.stdout.write(
+                self.style.SUCCESS(
+                    f'Generating daily report for character {character_uid} on {target_date.isoformat()}'
+                )
+            )
 
         try:
             character = Character.objects.get(uid=character_uid)
@@ -92,17 +111,25 @@ class Command(BaseCommand):
 
         if existing_report:
             if force:
-                self.stdout.write(
-                    self.style.WARNING(
-                        f'Existing report found. Deleting and regenerating (force mode)...'
+                if update_mode:
+                    self.stdout.write(
+                        self.style.WARNING(
+                            f'Existing report found. Will update with new data (force update mode)...'
+                        )
                     )
-                )
-                existing_report.delete()
+                else:
+                    self.stdout.write(
+                        self.style.WARNING(
+                            f'Existing report found. Deleting and regenerating (force mode)...'
+                        )
+                    )
+                    existing_report.delete()
+                    existing_report = None
             else:
                 self.stderr.write(
                     self.style.ERROR(
                         f'Report already exists for {character.name} on {target_date.isoformat()}. '
-                        f'Use --force to regenerate.'
+                        f'Use --force to regenerate or --force --update to update.'
                     )
                 )
                 return
@@ -126,7 +153,12 @@ class Command(BaseCommand):
             )
         )
 
-        aggregated_data = aggregate_status_data(character, field_mappings, target_date)
+        aggregated_data = aggregate_status_data(
+            character, 
+            field_mappings, 
+            target_date,
+            end_datetime=data_cutoff_time
+        )
 
         if not aggregated_data:
             self.stderr.write(
@@ -142,6 +174,25 @@ class Command(BaseCommand):
             )
         )
 
+        new_last_record_time_str = aggregated_data.get('last_record_time')
+        new_last_record_time = None
+        if new_last_record_time_str:
+            try:
+                new_last_record_time = timezone.datetime.fromisoformat(new_last_record_time_str)
+                if timezone.is_naive(new_last_record_time):
+                    new_last_record_time = timezone.make_aware(new_last_record_time)
+                self.stdout.write(
+                    self.style.NOTICE(
+                        f'Latest record time: {new_last_record_time.isoformat()}'
+                    )
+                )
+            except (ValueError, TypeError):
+                self.stdout.write(
+                    self.style.WARNING(
+                        f'Failed to parse last_record_time: {new_last_record_time_str}'
+                    )
+                )
+
         if no_ai:
             self.stdout.write(
                 self.style.WARNING(
@@ -149,10 +200,8 @@ class Command(BaseCommand):
                 )
             )
             analysis_result = {
-                'error': 'AI analysis skipped for testing',
-                'summary': 'AI 分析已跳过（测试模式）',
-                'schedule': {},
-                'anomalies': []
+                'markdown': '## 分析已跳过\n\nAI 分析已跳过（测试模式）',
+                'error': 'AI analysis skipped for testing'
             }
         else:
             self.stdout.write(
@@ -175,19 +224,35 @@ class Command(BaseCommand):
                     )
                 )
 
-        DailyReport.objects.create(
-            character=character,
-            date=target_date,
-            is_hidden=False,
-            raw_data=aggregated_data,
-            analysis_result=analysis_result
-        )
-
-        self.stdout.write(
-            self.style.SUCCESS(
-                f'\nDaily report generated successfully!'
+        if existing_report:
+            existing_report.raw_data = aggregated_data
+            existing_report.analysis_result = analysis_result
+            existing_report.last_record_time = new_last_record_time
+            existing_report.data_cutoff_time = data_cutoff_time
+            existing_report.save()
+            
+            self.stdout.write(
+                self.style.SUCCESS(
+                    f'\nDaily report updated successfully!'
+                )
             )
-        )
+        else:
+            DailyReport.objects.create(
+                character=character,
+                date=target_date,
+                is_hidden=False,
+                raw_data=aggregated_data,
+                analysis_result=analysis_result,
+                last_record_time=new_last_record_time,
+                data_cutoff_time=data_cutoff_time
+            )
+
+            self.stdout.write(
+                self.style.SUCCESS(
+                    f'\nDaily report generated successfully!'
+                )
+            )
+
         self.stdout.write(
             self.style.NOTICE(
                 f'  Character: {character.name}'
@@ -200,13 +265,22 @@ class Command(BaseCommand):
         )
         self.stdout.write(
             self.style.NOTICE(
+                f'  Data cutoff: {data_cutoff_time.isoformat()}'
+            )
+        )
+        self.stdout.write(
+            self.style.NOTICE(
                 f'  Records processed: {aggregated_data["total_records"]}'
             )
         )
         
-        if analysis_result.get('summary'):
-            self.stdout.write(
-                self.style.NOTICE(
-                    f'\nSummary: {analysis_result["summary"][:100]}...'
+        markdown = analysis_result.get('markdown', '')
+        if markdown:
+            lines = markdown.strip().split('\n')
+            if lines:
+                first_line = lines[0]
+                self.stdout.write(
+                    self.style.NOTICE(
+                        f'\nTitle: {first_line}'
+                    )
                 )
-            )

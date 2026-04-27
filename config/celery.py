@@ -25,7 +25,7 @@ app.conf.beat_schedule = {
     },
     'generate-daily-reports': {
         'task': 'apps.characters.tasks.generate_daily_reports',
-        'schedule': crontab(hour=2, minute=0),  # 每天凌晨 2:00 执行
+        'schedule': crontab(minute=5),  # 每小时第 5 分钟执行（给状态同步留时间）
     },
 }
 

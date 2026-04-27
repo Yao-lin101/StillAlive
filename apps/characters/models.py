@@ -246,6 +246,16 @@ class DailyReport(models.Model):
         blank=True,
         help_text='AI分析结果'
     )
+    last_record_time = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text='最新状态数据的时间，用于判断是否有新数据'
+    )
+    data_cutoff_time = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text='数据截止时间（任务执行时的时间）'
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

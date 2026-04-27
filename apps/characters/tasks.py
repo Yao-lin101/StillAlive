@@ -133,7 +133,7 @@ def check_wills():
     logger.info("Will check task completed")
 
 
-def aggregate_status_data(character, field_mappings, target_date):
+def aggregate_status_data(character, field_mappings, target_date, end_datetime=None):
     """
     聚合指定日期的状态数据
     
@@ -141,12 +141,15 @@ def aggregate_status_data(character, field_mappings, target_date):
         character: 角色对象
         field_mappings: 字段映射，格式: {"phone_app": "key", "computer_app": "key", "steps": "key"}
         target_date: 目标日期
+        end_datetime: 数据截止时间（可选，默认是当天结束）
     
     Returns:
-        dict: 聚合后的数据
+        dict: 聚合后的数据，包含 'last_record_time' 字段（最新状态的时间）
     """
     start_datetime = timezone.make_aware(datetime.combine(target_date, datetime.min.time()))
-    end_datetime = start_datetime + timedelta(days=1)
+    
+    if end_datetime is None:
+        end_datetime = start_datetime + timedelta(days=1)
     
     statuses = CharacterStatus.objects.filter(
         character=character,
@@ -157,9 +160,13 @@ def aggregate_status_data(character, field_mappings, target_date):
     if not statuses.exists():
         return None
     
+    latest_status = statuses.last()
+    
     aggregated = {
         'date': target_date.isoformat(),
         'total_records': statuses.count(),
+        'last_record_time': latest_status.timestamp.isoformat() if latest_status else None,
+        'data_cutoff_time': end_datetime.isoformat(),
         'phone_app_usage': [],
         'computer_app_usage': [],
         'steps_data': [],
@@ -303,16 +310,19 @@ def analyze_with_llm(aggregated_data, character_name):
             'computer_app_summary': aggregated_data.get('computer_app_summary', {}),
             'phone_app_by_hour': aggregated_data.get('phone_app_by_hour', {}),
             'computer_app_by_hour': aggregated_data.get('computer_app_by_hour', {}),
-            'steps_summary': aggregated_data.get('steps_summary', {})
+            'steps_summary': aggregated_data.get('steps_summary', {}),
+            'last_record_time': aggregated_data.get('last_record_time'),
+            'data_cutoff_time': aggregated_data.get('data_cutoff_time')
         }
         
-        prompt = f"""你是一位专业的生活数据分析助手。请根据以下数据分析用户 {character_name} 在 {data_summary['date']} 的活动情况。
+        prompt = f"""你是一位毒舌但精准的生活数据分析专家。请根据以下数据，对用户 {character_name} 在 {data_summary['date']} 的活动进行锐评式分析。
 
-数据概览：
+## 数据概览：
 - 总记录数: {data_summary['total_records']}
 - 活动小时: {data_summary['active_hours']}
 - 首次活动时间: {data_summary.get('first_activity_hour', '未知')} 点
 - 最后活动时间: {data_summary.get('last_activity_hour', '未知')} 点
+- 数据截止时间: {data_summary.get('data_cutoff_time', '未知')}
 """
         
         if data_summary['phone_app_summary']:
@@ -341,26 +351,98 @@ def analyze_with_llm(aggregated_data, character_name):
 """
         
         prompt += """
-请以 Markdown 格式输出分析报告，包含以下部分：
+## 分析要求：
 
-## 活动总结
-简要总结用户当天的主要活动（100-200字）。
+### 1. 几字短评标题（必须）
+根据用户当天的整体活动情况，用一个 **2-4字的短评** 作为主标题。短评要尖锐、有梗、能概括用户当日特征。
 
-## 作息规律
-分析用户的作息时间，包括：
-- **起床时间估计**: 根据首次活动时间推断
-- **入睡时间估计**: 根据最后活动时间推断
-- **活跃时段**: 列出主要活跃的时间段
-- **常用应用**: 列出使用最多的应用
+**可选方向参考**：
+- 正常作息：「像个人」「有点拟人」「平平无奇」
+- 熬夜党：「夜猫子」「修仙模式」「凌晨战神」「阴间作息」
+- 反常人类：「不像人类」「神人日常」「离谱作息」「谜之行为」
+- 数据不足：「数据太少」「不知所踪」「人间蒸发」
+- 其他：「肝帝日常」「摸鱼达人」「社交达人」「死肥宅」
 
-## 异常活动
-如果检测到异常活动（如凌晨 0:00-5:00 的活动、反常的应用使用等），请列出每个异常的时间和描述。如果没有异常活动，则说明"今日无异常活动"。
+**注意**：不要直接使用上面的词汇，要根据数据特征创造更精准、更有梗的短评。
 
-注意事项：
+### 2. 锐评式分析
+用毒舌但精准的语言分析用户的作息和活动。要抽象、有冲击力、让人印象深刻。
+
+**分析维度**：
+- **作息诊断**：这是什么物种的作息？人类？夜行动物？修仙者？
+- **活动画像**：从应用使用情况推断用户是什么类型的人？
+- **异常亮点**：有没有反常的时间点或反常的行为？
+
+**锐评风格参考**：
+- 不要说"用户在凌晨2点还在使用手机"，要说"凌晨两点还在刷手机，这是把夜晚当成白天过了？"
+- 不要说"用户使用最多的应用是微信"，要说"微信刷得最勤，这是在跟谁聊？还是在刷朋友圈刷到停不下来？"
+- 不要说"用户步数很少"，要说"步数低得离谱，这是在床上躺了一天？还是腿断了？"
+
+### 3. 合理怀疑（非常重要）
+根据用户的行为进行合理的推测和怀疑，让分析更有故事性和趣味性。
+
+**怀疑维度**：
+- **应用用途推测**：用户打开某个应用是在做什么？
+  - 浏览器/搜索类应用 → 在查什么？学习？摸鱼？还是在查某些不可告人的内容？
+  - 社交类应用 → 在跟谁聊？聊什么？
+  - 视频/娱乐类应用 → 在刷什么？
+  - 某些"工具类"应用 → 懂的都懂，合理怀疑
+  
+- **时间段推测**：用户在某个时间段为什么活跃/不活跃？
+  - 凌晨活跃 → 熬夜干啥？修仙？还是性压抑？
+  - 白天不活跃 → 在睡觉？还是在干其他事情？
+  - 某个时间段使用量激增 → 发生了什么？
+
+**怀疑风格参考**：
+- "凌晨2点还在刷QQ和微信，这是夜猫子还是夜生活？或者是...性压抑了？"
+- "健康应用使用量最大，这是在养生？还是身体出了什么问题？"
+- "某个时间段使用了快捷指令，这是在自动化什么操作？"
+- "步数几乎为零，这是躺平了一整天？还是...腿断了？"
+
+**注意**：怀疑要基于实际数据，不要凭空捏造，但可以大胆推测。使用"可能"、"也许"、"难道是"等词汇增加神秘感。
+
+### 4. Emoji 表情使用
+在分析中适当使用 emoji 表情，让内容更生动、更抽象。
+
+**推荐表情**：
+- 时间相关：🌙 🌅 ⏰ ⏳
+- 情绪相关：🤔 😏 😱 🤡 💀
+- 活动相关：📱 💻 🚶‍♂️ 🍤 🔞
+- 神秘相关：👀 🤫 🔮 🕵️‍♂️
+
+**使用示例**：
+- "凌晨两点还在刷手机 🌙，这是把夜晚当成白天过了？"
+- "微信刷得最勤 📱，这是在跟谁聊？还是在刷朋友圈刷到停不下来？"
+- "步数低得离谱 🚶‍♂️，这是在床上躺了一天？还是腿断了？"
+- "健康应用使用量最大 🍤，这是在养生？还是身体出了什么问题？"
+
+### 5. 输出格式
+
+直接输出 Markdown 格式，不要有其他说明文字：
+
+```markdown
+# 【几字短评】
+
+## 作息诊断
+[锐评用户的作息时间，2-3句话，适当使用 emoji]
+
+## 活动画像
+[从应用使用分析用户类型，2-3句话，适当使用 emoji]
+
+## 异常亮点
+[列出反常的时间点或行为，用锐评式语言。如果没有异常，就说"今日无异常亮点——平平无奇的一天"，适当使用 emoji]
+```
+
+**注意事项**：
 - 所有时间以北京时间为准
-- 分析要基于实际数据，如果数据不足，请合理推断或说明
-- 使用中文输出
-- 直接输出 Markdown 内容，不要有其他说明文字"""
+- 分析要基于实际数据，不要凭空捏造
+- 使用中文，要口语化、有冲击力
+- 可以适当使用网络流行语，但不要过度
+- 数据截止时间已给出，如果时间还早，可以说"数据截至XX点，后续可能还有更新"
+- 合理怀疑时可以大胆推测，但要用"可能"、"也许"等词汇
+- 每个部分都可以适当使用 emoji 表情
+
+现在开始你的锐评分析："""
 
         response = client.messages.create(
             model=model,
@@ -473,14 +555,18 @@ def analyze_with_llm(aggregated_data, character_name):
 )
 def generate_daily_reports(self):
     """
-    定时生成日报分析
+    定时生成日报分析（每小时执行）
     
-    每天凌晨执行，分析前一天所有启用了日报分析功能的角色数据
+    每小时执行，分析当天截至当前时间的数据
+    - 如果日报不存在：创建新日报
+    - 如果日报已存在但有新数据：更新日报
+    - 如果日报已存在且无新数据：跳过 LLM 分析
     """
     now = timezone.now()
-    target_date = now.date() - timedelta(days=1)
+    target_date = now.date()
+    data_cutoff_time = now
     
-    logger.info(f"Starting daily report generation for {target_date.isoformat()}")
+    logger.info(f"Starting daily report generation for {target_date.isoformat()} at {data_cutoff_time.isoformat()}")
     
     active_configs = DailyReportConfig.objects.filter(
         is_enabled=True
@@ -490,11 +576,43 @@ def generate_daily_reports(self):
     
     success_count = 0
     failed_count = 0
+    skipped_count = 0
+    updated_count = 0
+    new_count = 0
     
     for config in active_configs:
         try:
             character = config.character
             logger.info(f"Processing report for character: {character.name} (uid: {character.uid})")
+            
+            field_mappings = config.field_mappings or {}
+            
+            if not field_mappings:
+                logger.warning(f"No field mappings configured for {character.name}, skipping report")
+                skipped_count += 1
+                continue
+            
+            aggregated_data = aggregate_status_data(
+                character, 
+                field_mappings, 
+                target_date,
+                end_datetime=data_cutoff_time
+            )
+            
+            if not aggregated_data:
+                logger.info(f"No status data found for {character.name} on {target_date}")
+                skipped_count += 1
+                continue
+            
+            new_last_record_time_str = aggregated_data.get('last_record_time')
+            new_last_record_time = None
+            if new_last_record_time_str:
+                try:
+                    new_last_record_time = timezone.datetime.fromisoformat(new_last_record_time_str)
+                    if timezone.is_naive(new_last_record_time):
+                        new_last_record_time = timezone.make_aware(new_last_record_time)
+                except (ValueError, TypeError):
+                    logger.warning(f"Failed to parse last_record_time: {new_last_record_time_str}")
             
             existing_report = DailyReport.objects.filter(
                 character=character,
@@ -502,44 +620,71 @@ def generate_daily_reports(self):
             ).first()
             
             if existing_report:
-                logger.info(f"Report already exists for {character.name} on {target_date}, skipping")
-                continue
+                existing_last_record_time = existing_report.last_record_time
+                
+                has_new_data = True
+                if existing_last_record_time and new_last_record_time:
+                    if new_last_record_time <= existing_last_record_time:
+                        has_new_data = False
+                        logger.info(f"No new data for {character.name} since {existing_last_record_time}, skipping LLM analysis")
+                
+                if not has_new_data:
+                    skipped_count += 1
+                    continue
+                
+                logger.info(f"New data found for {character.name}, updating report")
+                
+                analysis_result = analyze_with_llm(aggregated_data, character.name)
+                
+                existing_report.raw_data = aggregated_data
+                existing_report.analysis_result = analysis_result
+                existing_report.last_record_time = new_last_record_time
+                existing_report.data_cutoff_time = data_cutoff_time
+                existing_report.save()
+                
+                updated_count += 1
+                success_count += 1
+                logger.info(f"Successfully updated report for {character.name}")
             
-            field_mappings = config.field_mappings or {}
-            
-            if not field_mappings:
-                logger.warning(f"No field mappings configured for {character.name}, skipping report")
-                continue
-            
-            aggregated_data = aggregate_status_data(character, field_mappings, target_date)
-            
-            if not aggregated_data:
-                logger.info(f"No status data found for {character.name} on {target_date}")
-                continue
-            
-            analysis_result = analyze_with_llm(aggregated_data, character.name)
-            
-            DailyReport.objects.create(
-                character=character,
-                date=target_date,
-                is_hidden=False,
-                raw_data=aggregated_data,
-                analysis_result=analysis_result
-            )
-            
-            success_count += 1
-            logger.info(f"Successfully generated report for {character.name}")
+            else:
+                logger.info(f"No existing report for {character.name}, creating new report")
+                
+                analysis_result = analyze_with_llm(aggregated_data, character.name)
+                
+                DailyReport.objects.create(
+                    character=character,
+                    date=target_date,
+                    is_hidden=False,
+                    raw_data=aggregated_data,
+                    analysis_result=analysis_result,
+                    last_record_time=new_last_record_time,
+                    data_cutoff_time=data_cutoff_time
+                )
+                
+                new_count += 1
+                success_count += 1
+                logger.info(f"Successfully created report for {character.name}")
             
         except Exception as e:
             failed_count += 1
             logger.error(f"Failed to generate report for character {config.character.name if config.character else 'unknown'}: {str(e)}")
+            import traceback
+            logger.error(traceback.format_exc())
             continue
     
-    logger.info(f"Daily report generation completed. Success: {success_count}, Failed: {failed_count}")
+    logger.info(
+        f"Daily report generation completed. "
+        f"Success: {success_count} (New: {new_count}, Updated: {updated_count}), "
+        f"Skipped: {skipped_count}, Failed: {failed_count}"
+    )
     
     return {
         'date': target_date.isoformat(),
+        'data_cutoff_time': data_cutoff_time.isoformat(),
         'success_count': success_count,
+        'new_count': new_count,
+        'updated_count': updated_count,
+        'skipped_count': skipped_count,
         'failed_count': failed_count,
         'total_processed': active_configs.count()
     } 
