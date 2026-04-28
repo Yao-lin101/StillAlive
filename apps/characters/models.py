@@ -224,6 +224,12 @@ class DailyReportConfig(models.Model):
         default='',
         help_text='角色人设信息，用于LLM分析日报时作为背景参考，如：年龄、职业、日常习惯等'
     )
+    system_inferred_persona = models.TextField(
+        blank=True,
+        null=True,
+        default='',
+        help_text='系统暗中生成的真实人设档案（不对用户展示），用于修正LLM的长期认知'
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

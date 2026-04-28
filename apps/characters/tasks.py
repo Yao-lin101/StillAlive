@@ -265,11 +265,17 @@ def aggregate_status_data(character, field_mappings, target_date, end_datetime=N
     if aggregated['active_hours']:
         aggregated['first_activity_hour'] = min(aggregated['active_hours'])
         aggregated['last_activity_hour'] = max(aggregated['active_hours'])
+        
+    # 为了防止 raw_data 过大撑爆数据库并浪费 token，在此处删除用于计算的明细流水数组
+    aggregated.pop('all_statuses', None)
+    aggregated.pop('phone_app_usage', None)
+    aggregated.pop('computer_app_usage', None)
+    aggregated.pop('steps_data', None)
     
     return aggregated
 
 
-def analyze_with_llm(aggregated_data, character_name, persona=None):
+def analyze_with_llm(aggregated_data, character_name, persona=None, system_inferred_persona=None):
     """
     使用 Anthropic API 分析数据
     
@@ -277,6 +283,7 @@ def analyze_with_llm(aggregated_data, character_name, persona=None):
         aggregated_data: 聚合后的数据
         character_name: 角色名称
         persona: 角色人设信息（可选）
+        system_inferred_persona: 系统暗中推断的真实人设档案（可选）
     
     Returns:
         dict: AI 分析结果，包含 'markdown' 字段
@@ -333,7 +340,12 @@ def analyze_with_llm(aggregated_data, character_name, persona=None):
         user_prompt = f"请对用户 {character_name} 在 {data_summary['date']} 的活动进行分析。\n"
         
         if persona and persona.strip():
-            user_prompt += f"\n## 角色背景\n{persona.strip()}\n请结合上述人设背景进行分析，使锐评更贴合角色。\n"
+            user_prompt += f"\n## 用户自述角色背景\n{persona.strip()}\n"
+            
+        if system_inferred_persona and system_inferred_persona.strip():
+            user_prompt += f"\n## 系统长期观察得出的真实侧写档案\n{system_inferred_persona.strip()}\n\n【重要要求】：如果今天的数据进一步证明了他的实际行为符合“真实侧写档案”而违背了“自述背景”，说明他在自欺欺人，请在锐评中毫不留情地结合真实档案嘲讽他！\n"
+        elif persona and persona.strip():
+            user_prompt += "\n请结合上述自述背景进行分析，使锐评更贴合角色。\n"
 
         cutoff_time_str = data_summary.get('data_cutoff_time', '未知')
         
@@ -560,6 +572,87 @@ def analyze_with_llm(aggregated_data, character_name, persona=None):
             'error': str(e)
         }
 
+def update_system_persona(config, yesterday_report_text):
+    """
+    使用 Anthropic API 更新系统的暗中认知人设
+    """
+    api_key = getattr(settings, 'ANTHROPIC_API_KEY', None)
+    model = getattr(settings, 'ANTHROPIC_MODEL', 'claude-3-5-sonnet-20241022')
+    base_url = getattr(settings, 'ANTHROPIC_BASE_URL', None)
+    
+    if not api_key:
+        return
+        
+    try:
+        import anthropic
+        client_kwargs = {'api_key': api_key}
+        if base_url:
+            client_kwargs['base_url'] = base_url
+        client = anthropic.Anthropic(**client_kwargs)
+        
+        from apps.characters.models import DailyReport
+        
+        if not config.system_inferred_persona:
+            # 第一次评估，获取过去最多 7 天的日报
+            recent_reports = DailyReport.objects.filter(
+                character=config.character,
+                is_hidden=False
+            ).order_by('-date')[:7]
+            
+            if recent_reports:
+                import json
+                
+                def get_summary(r):
+                    if not r.raw_data: return '暂无数据'
+                    return json.dumps({
+                        'total_records': r.raw_data.get('total_records'),
+                        'active_hours': r.raw_data.get('active_hours'),
+                        'phone_app_summary': r.raw_data.get('phone_app_summary'),
+                        'computer_app_summary': r.raw_data.get('computer_app_summary'),
+                        'steps_summary': r.raw_data.get('steps_summary')
+                    }, ensure_ascii=False)
+                    
+                reports_text = "\n\n---\n\n".join([
+                    f"日期：{r.date}\n客观活动聚合数据：{get_summary(r)}" 
+                    for r in reversed(recent_reports)
+                ])
+                data_section = f"这是你第一次对该用户进行侧写。为了防止受到用户过去自述人设的误导，以下直接提供该用户过去几天（最多7天）的【纯客观活动聚合数据 JSON】：\n{reports_text}\n\n请完全基于这些无滤镜的客观数据，穿透表象，总结出他初始的真实侧写档案。"
+            else:
+                data_section = f"这是你第一次对该用户进行侧写。以下是该用户昨天的最终活动总结报告：\n{yesterday_report_text}\n\n请根据昨天的新报告建立他初始的真实侧写档案。"
+        else:
+            data_section = f"以下是该用户昨天的最终活动总结报告：\n{yesterday_report_text}\n\n请根据昨天的新报告更新他的侧写档案。"
+
+        system_prompt = "你是一个极度冷酷、尖锐的心理与行为侧写师，负责通过观察一个人的日常活动记录，暗中推断他的真实人设。"
+        
+        user_prompt = f"""以下是该用户自己声称的人设背景：
+{config.persona or "（无）"}
+
+以下是你上次对他进行的暗中侧写档案：
+{config.system_inferred_persona or "（这是第一次评估，暂无历史侧写）"}
+
+{data_section}
+
+【重要要求】：
+1. 保持定力：不要因为单独一天的反常就轻易推翻历史认知，要寻找长期趋势。如果昨天是偶尔反常，请在侧写中保持原有警惕（比如："虽然今天早睡了，但大概率只是通宵后的补觉"）。
+2. 揭穿谎言：如果实际行为严重打脸了他"自己声称的人设"，请在侧写中毫不留情地将其标记为"假装努力"或"自欺欺人"。
+3. 严格精简：不要寒暄，不需要解释过程，直接输出更新后的侧写档案，务必控制在 150 字以内，字字诛心。"""
+        
+        response = client.messages.create(
+            model=model,
+            max_tokens=500,
+            temperature=0.4,
+            system=system_prompt,
+            messages=[{"role": "user", "content": user_prompt}]
+        )
+        
+        new_persona = response.content[0].text.strip()
+        config.system_inferred_persona = new_persona
+        config.save(update_fields=['system_inferred_persona'])
+        logger.info(f"Successfully updated system_inferred_persona for {config.character.name}")
+        
+    except Exception as e:
+        logger.error(f"Failed to update system_inferred_persona: {str(e)}")
+
 
 @shared_task(
     bind=True,
@@ -653,6 +746,8 @@ def generate_daily_reports(self):
                     date=target_date
                 ).first()
                 
+                is_final_summary = (target_date == yesterday and local_now.hour == 0)
+                
                 if existing_report:
                     existing_last_record_time = existing_report.last_record_time
                     
@@ -660,9 +755,6 @@ def generate_daily_reports(self):
                     if existing_last_record_time and new_last_record_time:
                         if new_last_record_time <= existing_last_record_time:
                             has_new_data = False
-                            
-                    # 判断是否为“昨日总结”时间点（0点~1点且处理的是昨天的数据）
-                    is_final_summary = (target_date == yesterday and local_now.hour == 0)
                     
                     if not has_new_data and not is_final_summary:
                         logger.info(f"No new data for {character.name} on {target_date} since {existing_last_record_time}, skipping LLM analysis")
@@ -674,7 +766,7 @@ def generate_daily_reports(self):
                     else:
                         logger.info(f"New data found for {character.name} on {target_date}, updating report")
                     
-                    analysis_result = analyze_with_llm(aggregated_data, character.name, config.persona)
+                    analysis_result = analyze_with_llm(aggregated_data, character.name, config.persona, config.system_inferred_persona)
                     
                     existing_report.raw_data = aggregated_data
                     existing_report.analysis_result = analysis_result
@@ -685,11 +777,14 @@ def generate_daily_reports(self):
                     updated_count += 1
                     success_count += 1
                     logger.info(f"Successfully updated report for {character.name} on {target_date}")
+                    
+                    if is_final_summary:
+                        update_system_persona(config, analysis_result.get('markdown', ''))
                 
                 else:
                     logger.info(f"No existing report for {character.name} on {target_date}, creating new report")
                     
-                    analysis_result = analyze_with_llm(aggregated_data, character.name, config.persona)
+                    analysis_result = analyze_with_llm(aggregated_data, character.name, config.persona, config.system_inferred_persona)
                     
                     DailyReport.objects.create(
                         character=character,
@@ -704,6 +799,9 @@ def generate_daily_reports(self):
                     new_count += 1
                     success_count += 1
                     logger.info(f"Successfully created report for {character.name} on {target_date}")
+                    
+                    if is_final_summary:
+                        update_system_persona(config, analysis_result.get('markdown', ''))
                 
             except Exception as e:
                 failed_count += 1
