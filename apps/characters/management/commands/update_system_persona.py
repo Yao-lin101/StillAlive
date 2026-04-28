@@ -57,4 +57,8 @@ class Command(BaseCommand):
             self.stdout.write(self.style.NOTICE('【The New System Inferred Persona】:'))
             self.stdout.write(config.system_inferred_persona)
         else:
-            self.stdout.write(self.style.ERROR('Failed to generate persona or result is empty.'))
+            report_count = DailyReport.objects.filter(character=character, is_hidden=False).count()
+            if report_count < 3:
+                self.stdout.write(self.style.WARNING(f'Skipped: Not enough data ({report_count} days). The system requires at least 3 days of data to establish a reliable baseline profile.'))
+            else:
+                self.stdout.write(self.style.ERROR('Failed to generate persona or result is empty.'))

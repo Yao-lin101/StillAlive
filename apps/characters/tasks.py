@@ -590,6 +590,10 @@ def update_system_persona(config, yesterday_report_text):
                 is_hidden=False
             ).order_by('-date')[:7]
             
+            if recent_reports.count() < 3:
+                logger.info(f"数据不足 3 天（当前 {recent_reports.count()} 天），暂不生成初始侧写档案，以免产生偏差。")
+                return False
+                
             if recent_reports:
                 import json
                 
