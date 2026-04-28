@@ -327,6 +327,7 @@ def analyze_with_llm(aggregated_data, character_name, persona=None):
    - 某个应用（如音乐、下载、视频）在数据中只出现一次，可能意味着它一直在后台运行。不要错误推断"只使用了一次"或"只用了几分钟"。
    - 步数是全天累计值（按小时分布的数据表示"截至该小时的总步数"），切勿将其误解为"单独某个小时走出的步数"然后进行累加计算。
 4. 时区：所有时间均为北京时间。
+5. 沉浸式扮演：绝对不要在回复中提及"根据人设"、"结合设定"、"规则要求"等出戏的话语。你是一个一直暗中观察他的老熟人，请把已知的人设背景自然地当成你本来就知道的事实说出来（例如："你小子肯定又切去那台破 Windows 电脑打游戏了"，而不是"结合 Windows 电脑未同步的设定推断"）。
 """
 
         user_prompt = f"请对用户 {character_name} 在 {data_summary['date']} 的活动进行分析。\n"
@@ -335,8 +336,20 @@ def analyze_with_llm(aggregated_data, character_name, persona=None):
             user_prompt += f"\n## 角色背景\n{persona.strip()}\n请结合上述人设背景进行分析，使锐评更贴合角色。\n"
 
         cutoff_time_str = data_summary.get('data_cutoff_time', '未知')
+        
+        target_date_str = data_summary.get('date', '')
+        weekday_str = ""
+        if target_date_str:
+            try:
+                target_date_obj = timezone.datetime.fromisoformat(target_date_str).date()
+                weekday_map = {0: '星期一', 1: '星期二', 2: '星期三', 3: '星期四', 4: '星期五', 5: '星期六', 6: '星期日'}
+                weekday_str = f" ({weekday_map[target_date_obj.weekday()]})"
+            except Exception:
+                pass
+                
         user_prompt += f"""
 ## 数据概览
+- 日期: {target_date_str}{weekday_str}（据此推断工作日或节假日）
 - 总记录数: {data_summary['total_records']}
 - 活动小时: {data_summary['active_hours']}
 - 首次活动时间: {data_summary.get('first_activity_hour', '未知')} 点
