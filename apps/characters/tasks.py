@@ -275,6 +275,50 @@ def aggregate_status_data(character, field_mappings, target_date, end_datetime=N
     return aggregated
 
 
+def extract_text_from_anthropic_response(response):
+    """
+    安全地从 Anthropic API 的 response 中提取文本，兼容带有 thinking block 的模型。
+    """
+    result_text = None
+    thinking_content = None
+    
+    if hasattr(response, 'content'):
+        for i, block in enumerate(response.content):
+            block_type = getattr(block, 'type', 'unknown')
+            
+            if block_type == 'text':
+                if hasattr(block, 'text') and block.text is not None:
+                    result_text = block.text
+                    break
+            
+            if block_type == 'thinking':
+                if hasattr(block, 'thinking') and block.thinking is not None:
+                    thinking_content = block.thinking
+                    
+        if result_text is None:
+            for i, block in enumerate(response.content):
+                if hasattr(block, 'text') and block.text is not None:
+                    result_text = block.text
+                    break
+        
+        if result_text is None:
+            try:
+                str_content = str(response.content[-1])
+                if str_content and len(str_content.strip()) > 0:
+                    if 'text=' in str_content and 'text=None' not in str_content:
+                        import re
+                        match = re.search(r"text='([^']+)'", str_content)
+                        if match:
+                            result_text = match.group(1)
+            except Exception:
+                pass
+                
+    if not result_text and hasattr(response, 'text'):
+        result_text = response.text
+        
+    return result_text
+
+
 def analyze_with_llm(aggregated_data, character_name, persona=None, system_inferred_persona=None):
     """
     使用 Anthropic API 分析数据
@@ -429,60 +473,7 @@ def analyze_with_llm(aggregated_data, character_name, persona=None, system_infer
                 'error': 'LLM response is empty'
             }
         
-        logger.info(f"Total content blocks: {len(response.content)}")
-        
-        result_text = None
-        thinking_content = None
-        
-        for i, block in enumerate(response.content):
-            block_type = getattr(block, 'type', 'unknown')
-            logger.info(f"Block {i}: type={block_type}")
-            logger.info(f"Block {i} full: {block}")
-            
-            if hasattr(block, 'model_dump'):
-                try:
-                    dumped = block.model_dump()
-                    logger.info(f"Block {i} model_dump: {dumped}")
-                except Exception as e:
-                    logger.info(f"Block {i} model_dump failed: {e}")
-            
-            if block_type == 'text':
-                if hasattr(block, 'text') and block.text is not None:
-                    result_text = block.text
-                    logger.info(f"Found text block {i}, text length: {len(result_text)}")
-                    break
-            
-            if block_type == 'thinking':
-                if hasattr(block, 'thinking') and block.thinking is not None:
-                    thinking_content = block.thinking
-                    logger.info(f"Found thinking block {i}, thinking length: {len(thinking_content)}")
-        
-        if result_text is None:
-            logger.warning("No text block found, checking for alternative extraction methods")
-            
-            for i, block in enumerate(response.content):
-                if hasattr(block, 'text') and block.text is not None:
-                    result_text = block.text
-                    logger.info(f"Found text via text attribute in block {i}")
-                    break
-                
-                if hasattr(block, 'thinking') and block.thinking is not None:
-                    if thinking_content is None:
-                        thinking_content = block.thinking
-        
-        if result_text is None:
-            try:
-                str_content = str(response.content[-1])
-                logger.info(f"Using str() of last block: {str_content[:200]}...")
-                if str_content and len(str_content.strip()) > 0:
-                    if 'text=' in str_content and 'text=None' not in str_content:
-                        import re
-                        match = re.search(r"text='([^']+)'", str_content)
-                        if match:
-                            result_text = match.group(1)
-                            logger.info(f"Extracted text from str(): {len(result_text)} chars")
-            except Exception as e:
-                logger.info(f"Failed to extract from str(): {e}")
+        result_text = extract_text_from_anthropic_response(response)
         
         if result_text is None or not isinstance(result_text, str) or len(result_text.strip()) == 0:
             logger.error(f"Failed to extract text from any block. Response: {response.content}")
@@ -645,10 +636,15 @@ def update_system_persona(config, yesterday_report_text):
             messages=[{"role": "user", "content": user_prompt}]
         )
         
-        new_persona = response.content[0].text.strip()
-        config.system_inferred_persona = new_persona
-        config.save(update_fields=['system_inferred_persona'])
-        logger.info(f"Successfully updated system_inferred_persona for {config.character.name}")
+        new_persona = extract_text_from_anthropic_response(response)
+        
+        if new_persona:
+            new_persona = new_persona.strip()
+            config.system_inferred_persona = new_persona
+            config.save(update_fields=['system_inferred_persona'])
+            logger.info(f"Successfully updated system_inferred_persona for {config.character.name}")
+        else:
+            logger.error("Failed to extract text from LLM response for persona update.")
         
     except Exception as e:
         logger.error(f"Failed to update system_inferred_persona: {str(e)}")
