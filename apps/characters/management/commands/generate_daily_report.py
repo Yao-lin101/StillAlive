@@ -2,7 +2,8 @@ from django.core.management.base import BaseCommand
 from django.utils import timezone
 from datetime import date, datetime, timedelta
 from apps.characters.models import Character, DailyReportConfig, DailyReport
-from apps.characters.tasks import aggregate_status_data, analyze_with_llm
+from apps.characters.services.data_service import aggregate_status_data
+from apps.characters.services.llm_service import analyze_with_llm
 import logging
 
 logger = logging.getLogger(__name__)
@@ -221,6 +222,8 @@ class Command(BaseCommand):
                     )
                 )
             
+            previous_cutoff_time = existing_report.data_cutoff_time if (existing_report and existing_report.data_cutoff_time) else None
+
             analysis_result = analyze_with_llm(
                 aggregated_data, 
                 character.name, 
@@ -228,7 +231,8 @@ class Command(BaseCommand):
                 config.ai_persona, 
                 config.system_inferred_persona,
                 previous_report=previous_report,
-                is_incremental=use_incremental
+                is_incremental=use_incremental,
+                previous_cutoff_time=previous_cutoff_time
             )
 
             if analysis_result.get('error'):
