@@ -319,7 +319,81 @@ def extract_text_from_anthropic_response(response):
     return result_text
 
 
-def analyze_with_llm(aggregated_data, character_name, persona=None, ai_persona=None, system_inferred_persona=None):
+def _clean_markdown_wrapper(result_text):
+    """
+    清理 LLM 回复格式中多余的 markdown 代码块包裹
+    """
+    import re
+    result_text = result_text.strip()
+    
+    # 情况 1：被 ```markdown 包裹
+    markdown_match = re.match(
+        r'^```markdown\s*\n(.*?)\n```\s*$',
+        result_text,
+        re.DOTALL
+    )
+    if markdown_match:
+        return markdown_match.group(1).strip()
+    
+    # 情况 2：被 ``` 包裹（不带 markdown 标签）
+    code_block_match = re.match(
+        r'^```\s*\n(.*?)\n```\s*$',
+        result_text,
+        re.DOTALL
+    )
+    if code_block_match:
+        return code_block_match.group(1).strip()
+    
+    # 情况 3：开头有 ```markdown 或 ``` 但结尾没有（不完整的代码块）
+    if result_text.startswith('```markdown'):
+        result_text = result_text[len('```markdown'):].strip()
+        if result_text.startswith('\n'):
+            result_text = result_text[1:].strip()
+    elif result_text.startswith('```'):
+        result_text = result_text[3:].strip()
+        if result_text.startswith('\n'):
+            result_text = result_text[1:].strip()
+            
+    # 情况 4：结尾有 ```
+    if result_text.endswith('```'):
+        result_text = result_text[:-3].strip()
+        
+    return result_text
+
+
+def _build_data_section(data_summary, target_date_str, weekday_str, cutoff_time_str):
+    """
+    统一格式化数据概览和应用使用情况，返回用于注入 prompt 的文本
+    """
+    data_section = f"""
+## 数据概览
+- 日期: {target_date_str}{weekday_str}（据此推断工作日或节假日）
+- 总记录数: {data_summary.get('total_records', 0)}
+- 活动小时: {data_summary.get('active_hours', [])}
+- 首次活动时间: {data_summary.get('first_activity_hour', '未知')} 点
+- 最后活动时间: {data_summary.get('last_activity_hour', '未知')} 点
+- 数据截止时间: {cutoff_time_str}
+"""
+    if cutoff_time_str != '未知' and 'T00:00:00' not in cutoff_time_str:
+        data_section += "\n**【系统强烈提示】当前这一天还没结束！数据只同步到了上述截止时间。你的分析必须处于“正在直播”的视角，评价时要用“截至目前”，绝对不能作结案陈词（比如“今天你一共就走了xx步”、“到这就收工了”），而是要推测他接下去会干嘛。**\n"
+        
+    if data_summary.get('phone_app_summary'):
+        data_section += f"\n## 手机应用（总计前20）\n{json.dumps(data_summary['phone_app_summary'], ensure_ascii=False)}\n"
+        data_section += f"\n## 手机应用（按小时）\n{json.dumps(data_summary.get('phone_app_by_hour', {}), ensure_ascii=False)}\n"
+    
+    if data_summary.get('computer_app_summary'):
+        data_section += f"\n## 电脑应用（总计前20）\n{json.dumps(data_summary['computer_app_summary'], ensure_ascii=False)}\n"
+        data_section += f"\n## 电脑应用（按小时）\n{json.dumps(data_summary.get('computer_app_by_hour', {}), ensure_ascii=False)}\n"
+    
+    if data_summary.get('steps_summary'):
+        data_section += f"\n## 今日总步数: {data_summary['steps_summary'].get('total', 0)}\n"
+        if data_summary.get('steps_by_hour'):
+            data_section += f"\n## 步数（按小时累计）\n{json.dumps(data_summary['steps_by_hour'], ensure_ascii=False)}\n"
+            
+    return data_section
+
+
+def analyze_with_llm(aggregated_data, character_name, persona=None, ai_persona=None, system_inferred_persona=None, previous_report=None, is_incremental=False):
     """
     使用 Anthropic API 分析数据
     
@@ -329,6 +403,8 @@ def analyze_with_llm(aggregated_data, character_name, persona=None, ai_persona=N
         persona: 角色人设信息（可选）- 用户的背景信息
         ai_persona: AI 人设配置（可选）- 自定义 AI 的身份、性格、语言风格
         system_inferred_persona: 系统暗中推断的真实人设档案（可选）
+        previous_report: 上一份日报的 markdown 内容（用于增量更新）
+        is_incremental: 是否为增量更新模式（保持风格一致性）
     
     Returns:
         dict: AI 分析结果，包含 'markdown' 字段
@@ -422,16 +498,6 @@ def analyze_with_llm(aggregated_data, character_name, persona=None, ai_persona=N
 5. 沉浸式扮演：绝对不要在回复中提及"根据人设"、"结合设定"、"规则要求"等出戏的话语。你是一个一直暗中观察他的老熟人，请把已知的人设背景自然地当成你本来就知道的事实说出来。
 """
 
-        user_prompt = f"请对用户 {character_name} 在 {data_summary['date']} 的活动进行分析。\n"
-        
-        if persona and persona.strip():
-            user_prompt += f"\n## 用户自述角色背景\n{persona.strip()}\n"
-            
-        if system_inferred_persona and system_inferred_persona.strip():
-            user_prompt += f"\n## 系统长期观察得出的真实侧写档案\n{system_inferred_persona.strip()}"
-        elif persona and persona.strip():
-            user_prompt += "\n请结合上述自述背景进行分析，使分析更贴合角色。\n"
-
         cutoff_time_str = data_summary.get('data_cutoff_time', '未知')
         
         target_date_str = data_summary.get('date', '')
@@ -443,35 +509,49 @@ def analyze_with_llm(aggregated_data, character_name, persona=None, ai_persona=N
                 weekday_str = f" ({weekday_map[target_date_obj.weekday()]})"
             except Exception:
                 pass
-                
-        user_prompt += f"""
-## 数据概览
-- 日期: {target_date_str}{weekday_str}（据此推断工作日或节假日）
-- 总记录数: {data_summary['total_records']}
-- 活动小时: {data_summary['active_hours']}
-- 首次活动时间: {data_summary.get('first_activity_hour', '未知')} 点
-- 最后活动时间: {data_summary.get('last_activity_hour', '未知')} 点
-- 数据截止时间: {cutoff_time_str}
+        
+        if is_incremental and previous_report and previous_report.strip():
+            # 清理上一份日报末尾由于代码自动拼接的数据截止时间尾巴，避免误导大模型或产生双重尾巴
+            import re
+            clean_previous_report = re.sub(r'\n+---\n+\*数据截止至：.*?\*\s*$', '', previous_report.strip())
+            
+            data_section = _build_data_section(data_summary, target_date_str, weekday_str, cutoff_time_str)
+            
+            user_prompt = f"""这是你之前为用户 {character_name} 生成的日报：
+
+{clean_previous_report}
+
+---
+
+现在有了新的数据，请根据新数据更新这份日报。
+
+**严格要求**：
+1. **保持风格一致性**：必须保留原有的语气、口吻、角色设定和整体格式
+2. **数据更新**：用新数据替换旧数据，但不要改变原有结构
+3. **不要重写**：只更新内容，不要完全重写整个日报
+4. **保持沉浸**：绝对不要提及"更新"、"修改"等词语，继续保持你的角色身份
+5. **绝对纯净**：绝对不要包含“好的”、“这是更新后的”等任何过渡或说明文字，直接输出 Markdown 内容本身。
+
+{data_section}
+
+请直接输出更新后的完整日报，保持原有风格。绝对不要输出任何开场白或解释性文字！
 """
-        
-        if cutoff_time_str != '未知' and 'T00:00:00' not in cutoff_time_str:
-            user_prompt += "\n**【系统强烈提示】当前这一天还没结束！数据只同步到了上述截止时间。你的分析必须处于“正在直播”的视角，评价时要用“截至目前”，绝对不能作结案陈词（比如“今天你一共就走了xx步”、“到这就收工了”），而是要推测他接下去会干嘛。**\n"
-        
-        if data_summary['phone_app_summary']:
-            user_prompt += f"\n## 手机应用（总计前20）\n{json.dumps(data_summary['phone_app_summary'], ensure_ascii=False)}\n"
-            user_prompt += f"\n## 手机应用（按小时）\n{json.dumps(data_summary['phone_app_by_hour'], ensure_ascii=False)}\n"
+        else:
+            user_prompt = f"请对用户 {character_name} 在 {data_summary.get('date')} 的活动进行分析。\n"
             
-        if data_summary['computer_app_summary']:
-            user_prompt += f"\n## 电脑应用（总计前20）\n{json.dumps(data_summary['computer_app_summary'], ensure_ascii=False)}\n"
-            user_prompt += f"\n## 电脑应用（按小时）\n{json.dumps(data_summary['computer_app_by_hour'], ensure_ascii=False)}\n"
-            
-        if data_summary['steps_summary']:
-            user_prompt += f"\n## 今日总步数: {data_summary['steps_summary'].get('total', 0)}\n"
-            if data_summary.get('steps_by_hour'):
-                user_prompt += f"\n## 步数（按小时累计）\n{json.dumps(data_summary['steps_by_hour'], ensure_ascii=False)}\n"
-            
-        if has_custom_ai_persona:
-            user_prompt += """
+            if persona and persona.strip():
+                user_prompt += f"\n## 用户自述角色背景\n{persona.strip()}\n"
+                
+            if system_inferred_persona and system_inferred_persona.strip():
+                user_prompt += f"\n## 系统长期观察得出的真实侧写档案\n{system_inferred_persona.strip()}"
+            elif persona and persona.strip():
+                user_prompt += "\n请结合上述自述背景进行分析，使分析更贴合角色。\n"
+
+            data_section = _build_data_section(data_summary, target_date_str, weekday_str, cutoff_time_str)
+            user_prompt += data_section
+                
+            if has_custom_ai_persona:
+                user_prompt += """
 ## 输出要求
 请使用 Markdown 格式输出，**保持你的角色身份和语言风格**。
 
@@ -484,8 +564,8 @@ def analyze_with_llm(aggregated_data, character_name, persona=None, ai_persona=N
 
 **重要提示**：用你自己的方式来表达，保持你的人设和语言风格，不要因为格式要求而变得生硬。
 """
-        else:
-            user_prompt += """
+            else:
+                user_prompt += """
 ## 输出格式
 请直接输出 Markdown 格式，不要包含任何说明文字：
 
@@ -541,52 +621,7 @@ def analyze_with_llm(aggregated_data, character_name, persona=None, ai_persona=N
         logger.info(f"Successfully extracted text, length: {len(result_text)}")
         
         # 清理 LLM 回复格式
-        # 情况 1：被 ```markdown 或 ``` 包裹
-        import re
-        
-        # 检测是否被 ```markdown 或 ``` 包裹
-        # 匹配格式：```markdown\n...\n``` 或 ```\n...\n```
-        result_text = result_text.strip()
-        
-        # 情况 1：被 ```markdown 包裹
-        markdown_match = re.match(
-            r'^```markdown\s*\n(.*?)\n```\s*$',
-            result_text,
-            re.DOTALL
-        )
-        if markdown_match:
-            result_text = markdown_match.group(1).strip()
-            logger.info("Removed ```markdown code block wrapper")
-        
-        # 情况 2：被 ``` 包裹（不带 markdown 标签）
-        else:
-            code_block_match = re.match(
-                r'^```\s*\n(.*?)\n```\s*$',
-                result_text,
-                re.DOTALL
-            )
-            if code_block_match:
-                result_text = code_block_match.group(1).strip()
-                logger.info("Removed ``` code block wrapper")
-        
-        # 情况 3：开头有 ```markdown 或 ``` 但结尾没有（不完整的代码块）
-        if result_text.startswith('```markdown'):
-            result_text = result_text[len('```markdown'):].strip()
-            if result_text.startswith('\n'):
-                result_text = result_text[1:].strip()
-            logger.info("Removed leading ```markdown")
-        
-        elif result_text.startswith('```'):
-            result_text = result_text[3:].strip()
-            if result_text.startswith('\n'):
-                result_text = result_text[1:].strip()
-            logger.info("Removed leading ```")
-        
-        # 情况 4：结尾有 ```
-        if result_text.endswith('```'):
-            result_text = result_text[:-3].strip()
-            logger.info("Removed trailing ```")
-        
+        result_text = _clean_markdown_wrapper(result_text)
         logger.info(f"Cleaned text length: {len(result_text)}")
         
         # 自动在结尾拼接数据截止时间，提升展示效果
@@ -626,9 +661,21 @@ def _get_raw_data_summary(report):
     """
     if not report.raw_data:
         return '暂无数据'
+        
+    weekday_str = ""
+    if report.date:
+        try:
+            weekday_map = {0: '星期一', 1: '星期二', 2: '星期三', 3: '星期四', 4: '星期五', 5: '星期六', 6: '星期日'}
+            weekday_str = weekday_map[report.date.weekday()]
+        except Exception:
+            pass
+
     return json.dumps({
+        'weekday': weekday_str,
         'total_records': report.raw_data.get('total_records'),
         'active_hours': report.raw_data.get('active_hours'),
+        'first_activity_hour': report.raw_data.get('first_activity_hour'),
+        'last_activity_hour': report.raw_data.get('last_activity_hour'),
         'phone_app_summary': report.raw_data.get('phone_app_summary'),
         'computer_app_summary': report.raw_data.get('computer_app_summary'),
         'steps_summary': report.raw_data.get('steps_summary')
@@ -864,7 +911,18 @@ def generate_daily_reports(self):
                     else:
                         logger.info(f"New data found for {character.name} on {target_date}, updating report")
                     
-                    analysis_result = analyze_with_llm(aggregated_data, character.name, config.persona, config.ai_persona, config.system_inferred_persona)
+                    use_incremental = (target_date == today) and not is_final_summary
+                    previous_report = existing_report.analysis_result.get('markdown', '') if existing_report.analysis_result else ''
+                    
+                    analysis_result = analyze_with_llm(
+                        aggregated_data, 
+                        character.name, 
+                        config.persona, 
+                        config.ai_persona, 
+                        config.system_inferred_persona,
+                        previous_report=previous_report,
+                        is_incremental=use_incremental
+                    )
                     
                     existing_report.raw_data = aggregated_data
                     existing_report.analysis_result = analysis_result

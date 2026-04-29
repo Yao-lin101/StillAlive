@@ -210,7 +210,26 @@ class Command(BaseCommand):
                     f'Analyzing data with LLM...'
                 )
             )
-            analysis_result = analyze_with_llm(aggregated_data, character.name, config.persona, config.ai_persona, config.system_inferred_persona)
+            
+            use_incremental = update_mode and existing_report is not None
+            previous_report = existing_report.analysis_result.get('markdown', '') if (existing_report and existing_report.analysis_result) else ''
+            
+            if use_incremental:
+                self.stdout.write(
+                    self.style.NOTICE(
+                        f'Using incremental update mode to preserve style consistency'
+                    )
+                )
+            
+            analysis_result = analyze_with_llm(
+                aggregated_data, 
+                character.name, 
+                config.persona, 
+                config.ai_persona, 
+                config.system_inferred_persona,
+                previous_report=previous_report,
+                is_incremental=use_incremental
+            )
 
             if analysis_result.get('error'):
                 self.stdout.write(
