@@ -319,14 +319,15 @@ def extract_text_from_anthropic_response(response):
     return result_text
 
 
-def analyze_with_llm(aggregated_data, character_name, persona=None, system_inferred_persona=None):
+def analyze_with_llm(aggregated_data, character_name, persona=None, ai_persona=None, system_inferred_persona=None):
     """
     使用 Anthropic API 分析数据
     
     Args:
         aggregated_data: 聚合后的数据
         character_name: 角色名称
-        persona: 角色人设信息（可选）
+        persona: 角色人设信息（可选）- 用户的背景信息
+        ai_persona: AI 人设配置（可选）- 自定义 AI 的身份、性格、语言风格
         system_inferred_persona: 系统暗中推断的真实人设档案（可选）
     
     Returns:
@@ -368,7 +369,47 @@ def analyze_with_llm(aggregated_data, character_name, persona=None, system_infer
             'data_cutoff_time': aggregated_data.get('data_cutoff_time')
         }
         
-        system_prompt = """你是一位毒舌但精准的生活数据分析专家，负责对用户的日常活动数据进行锐评式分析。
+        ai_persona = ai_persona or {}
+        
+        core_identity = ai_persona.get('core_identity', '')
+        personality_traits = ai_persona.get('personality_traits', '')
+        language_style = ai_persona.get('language_style', '')
+        
+        has_custom_ai_persona = bool(core_identity or personality_traits or language_style)
+        
+        if has_custom_ai_persona:
+            ai_identity_parts = []
+            if core_identity:
+                ai_identity_parts.append(core_identity)
+            if personality_traits:
+                ai_identity_parts.append(personality_traits)
+            
+            ai_identity_desc = "\n".join(ai_identity_parts)
+            
+            language_style_section = ""
+            if language_style:
+                language_style_section = f"""
+## 语言风格
+{language_style}
+"""
+            
+            system_prompt = f"""{ai_identity_desc}
+{language_style_section}
+## 角色沉浸要求
+- **始终保持你的角色身份**：无论输出什么内容，都要严格按照你的人设来说话和思考。
+- **不要出戏**：绝对不要在回复中提及"根据人设"、"结合设定"、"规则要求"等话语。你就是这个角色本身。
+- **你是老熟人**：你一直在暗中观察他，把已知的背景信息自然地当成你本来就知道的事实说出来。
+
+## 分析规则
+1. **基于数据**：基于实际数据进行合理怀疑与大胆推测（使用"可能"、"难道是"等词），但绝不凭空捏造。
+2. **数据局限性**：
+   - 只能获取**前台运行**的应用状态，无法获取后台状态。
+   - 某个应用（如音乐、下载、视频）在数据中只出现一次，可能意味着它一直在后台运行。不要错误推断"只使用了一次"或"只用了几分钟"。
+   - 步数是全天累计值（按小时分布的数据表示"截至该小时的总步数"），切勿将其误解为"单独某个小时走出的步数"然后进行累加计算。
+3. **时区**：所有时间均为北京时间。
+"""
+        else:
+            system_prompt = """你是一位毒舌但精准的生活数据分析专家，负责对用户的日常活动数据进行锐评式分析。
 
 ## 硬性约束
 1. 语言风格：毒舌、尖锐、抽象、有梗。口语化，可适当使用网络流行语。多用 emoji 增加表现力（如🌙🌅🤔🤡💀📱）。
@@ -378,7 +419,7 @@ def analyze_with_llm(aggregated_data, character_name, persona=None, system_infer
    - 某个应用（如音乐、下载、视频）在数据中只出现一次，可能意味着它一直在后台运行。不要错误推断"只使用了一次"或"只用了几分钟"。
    - 步数是全天累计值（按小时分布的数据表示"截至该小时的总步数"），切勿将其误解为"单独某个小时走出的步数"然后进行累加计算。
 4. 时区：所有时间均为北京时间。
-5. 沉浸式扮演：绝对不要在回复中提及"根据人设"、"结合设定"、"规则要求"等出戏的话语。你是一个一直暗中观察他的老熟人，请把已知的人设背景自然地当成你本来就知道的事实说出来（例如："你小子肯定又切去那台破 Windows 电脑打游戏了"，而不是"结合 Windows 电脑未同步的设定推断"）。
+5. 沉浸式扮演：绝对不要在回复中提及"根据人设"、"结合设定"、"规则要求"等出戏的话语。你是一个一直暗中观察他的老熟人，请把已知的人设背景自然地当成你本来就知道的事实说出来。
 """
 
         user_prompt = f"请对用户 {character_name} 在 {data_summary['date']} 的活动进行分析。\n"
@@ -387,9 +428,9 @@ def analyze_with_llm(aggregated_data, character_name, persona=None, system_infer
             user_prompt += f"\n## 用户自述角色背景\n{persona.strip()}\n"
             
         if system_inferred_persona and system_inferred_persona.strip():
-            user_prompt += f"\n## 系统长期观察得出的真实侧写档案\n{system_inferred_persona.strip()}\n\n【重要要求】：如果今天的数据进一步证明了他的实际行为符合“真实侧写档案”而违背了“自述背景”，说明他在自欺欺人，请在锐评中毫不留情地结合真实档案嘲讽他！\n"
+            user_prompt += f"\n## 系统长期观察得出的真实侧写档案\n{system_inferred_persona.strip()}"
         elif persona and persona.strip():
-            user_prompt += "\n请结合上述自述背景进行分析，使锐评更贴合角色。\n"
+            user_prompt += "\n请结合上述自述背景进行分析，使分析更贴合角色。\n"
 
         cutoff_time_str = data_summary.get('data_cutoff_time', '未知')
         
@@ -429,7 +470,22 @@ def analyze_with_llm(aggregated_data, character_name, persona=None, system_infer
             if data_summary.get('steps_by_hour'):
                 user_prompt += f"\n## 步数（按小时累计）\n{json.dumps(data_summary['steps_by_hour'], ensure_ascii=False)}\n"
             
-        user_prompt += """
+        if has_custom_ai_persona:
+            user_prompt += """
+## 输出要求
+请使用 Markdown 格式输出，**保持你的角色身份和语言风格**。
+
+内容需包含以下几个方面（你可以根据自己的说话风格来组织，不需要严格使用以下标题）：
+1. **标题**：用2-4个字概括今天的整体状态
+2. **整体总结**：用1-2句话总结今日整体活动
+3. **作息分析**：分析他的作息时间
+4. **活动画像**：从应用使用情况推测他当前的状态
+5. **有趣发现**：寻找反常时间点或行为进行推测。
+
+**重要提示**：用你自己的方式来表达，保持你的人设和语言风格，不要因为格式要求而变得生硬。
+"""
+        else:
+            user_prompt += """
 ## 输出格式
 请直接输出 Markdown 格式，不要包含任何说明文字：
 
@@ -767,7 +823,7 @@ def generate_daily_reports(self):
                     else:
                         logger.info(f"New data found for {character.name} on {target_date}, updating report")
                     
-                    analysis_result = analyze_with_llm(aggregated_data, character.name, config.persona, config.system_inferred_persona)
+                    analysis_result = analyze_with_llm(aggregated_data, character.name, config.persona, config.ai_persona, config.system_inferred_persona)
                     
                     existing_report.raw_data = aggregated_data
                     existing_report.analysis_result = analysis_result
@@ -785,7 +841,7 @@ def generate_daily_reports(self):
                 else:
                     logger.info(f"No existing report for {character.name} on {target_date}, creating new report")
                     
-                    analysis_result = analyze_with_llm(aggregated_data, character.name, config.persona, config.system_inferred_persona)
+                    analysis_result = analyze_with_llm(aggregated_data, character.name, config.persona, config.ai_persona, config.system_inferred_persona)
                     
                     DailyReport.objects.create(
                         character=character,

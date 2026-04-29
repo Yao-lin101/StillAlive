@@ -183,6 +183,7 @@ class DailyReportConfigSerializer(serializers.ModelSerializer):
             'visibility',
             'field_mappings',
             'persona',
+            'ai_persona',
             'created_at',
             'updated_at'
         ]
@@ -197,6 +198,21 @@ class DailyReportConfigSerializer(serializers.ModelSerializer):
         for key in value.keys():
             if key not in allowed_keys:
                 raise serializers.ValidationError(f"不支持的字段类型: {key}，支持的类型: phone_app, computer_app, steps")
+        
+        return value
+
+    def validate_ai_persona(self, value):
+        """验证 AI 人设配置格式"""
+        if value is None:
+            return {}
+        
+        if not isinstance(value, dict):
+            raise serializers.ValidationError("AI 人设配置必须是一个对象")
+        
+        allowed_keys = {'core_identity', 'personality_traits', 'language_style'}
+        for key in value.keys():
+            if key not in allowed_keys:
+                raise serializers.ValidationError(f"不支持的 AI 人设字段: {key}，支持的字段: core_identity, personality_traits, language_style")
         
         return value
 

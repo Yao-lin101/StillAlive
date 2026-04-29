@@ -210,7 +210,7 @@ class Command(BaseCommand):
                     f'Analyzing data with LLM...'
                 )
             )
-            analysis_result = analyze_with_llm(aggregated_data, character.name, config.persona, config.system_inferred_persona)
+            analysis_result = analyze_with_llm(aggregated_data, character.name, config.persona, config.ai_persona, config.system_inferred_persona)
 
             if analysis_result.get('error'):
                 self.stdout.write(

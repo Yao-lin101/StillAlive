@@ -224,6 +224,11 @@ class DailyReportConfig(models.Model):
         default='',
         help_text='角色人设信息，用于LLM分析日报时作为背景参考，如：年龄、职业、日常习惯等'
     )
+    ai_persona = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text='AI 人设配置，用于自定义日报分析时的 AI 身份，格式: {"core_identity": "核心身份", "personality_traits": "性格特征", "language_style": "语言风格"}'
+    )
     system_inferred_persona = models.TextField(
         blank=True,
         null=True,
