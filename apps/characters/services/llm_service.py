@@ -98,7 +98,7 @@ def _clean_markdown_wrapper(result_text):
 
 
 
-def _build_data_section(data_summary, target_date_str, weekday_str, cutoff_time_str):
+def _build_data_section(data_summary, target_date_str, weekday_str, cutoff_time_str, is_incremental=False):
     """
     统一格式化数据概览和应用使用情况，返回用于注入 prompt 的文本
     """
@@ -111,8 +111,10 @@ def _build_data_section(data_summary, target_date_str, weekday_str, cutoff_time_
 - 最后活动时间: {data_summary.get('last_activity_hour', '未知')} 点
 - 数据截止时间: {cutoff_time_str}
 """
-    if cutoff_time_str != '未知' and 'T00:00:00' not in cutoff_time_str:
+    if is_incremental:
         data_section += "\n**【系统强烈提示】当前这一天还没结束！数据只同步到了上述截止时间。你的分析必须处于“正在直播”的视角，评价时要用“截至目前”，绝对不能作结案陈词（比如“今天你一共就走了xx步”、“到这就收工了”），而是要推测他接下去会干嘛。**\n"
+    else:
+        data_section += "\n**【系统强烈提示】今天已经彻底结束！这是全天的最终结案数据。请进行盖棺定论的总结，绝对不要使用“截至目前”、“进行中”、“还在持续”、“推测接下去会干嘛”等未完结的直播语气！**\n"
    
     if data_summary.get('phone_app_summary'):
         data_section += f"\n## 手机应用（总计前20）\n{json.dumps(data_summary['phone_app_summary'], ensure_ascii=False)}\n"
@@ -225,7 +227,7 @@ def analyze_with_llm(aggregated_data, character_name, persona=None, ai_persona=N
             import re
             clean_previous_report = re.sub(r'\n+---\n+\*数据截止至：.*?\*\s*$', '', previous_report.strip())
             
-            data_section = _build_data_section(data_summary, target_date_str, weekday_str, cutoff_time_str)
+            data_section = _build_data_section(data_summary, target_date_str, weekday_str, cutoff_time_str, is_incremental=is_incremental)
             
             # 格式化上一次的截止时间
             prev_time_str = "之前"
@@ -251,7 +253,7 @@ def analyze_with_llm(aggregated_data, character_name, persona=None, ai_persona=N
             import re
             clean_previous_report = re.sub(r'\n+---\n+\*数据截止至：.*?\*\s*$', '', previous_report.strip())
             
-            data_section = _build_data_section(data_summary, target_date_str, weekday_str, cutoff_time_str)
+            data_section = _build_data_section(data_summary, target_date_str, weekday_str, cutoff_time_str, is_incremental=is_incremental)
             
             user_prompt = FINAL_SUMMARY_PROMPT.format(
                 clean_previous_report=clean_previous_report,
@@ -274,7 +276,7 @@ def analyze_with_llm(aggregated_data, character_name, persona=None, ai_persona=N
             elif persona and persona.strip():
                 user_prompt += "\n请结合上述自述背景进行分析，使分析更贴合角色。\n"
 
-            data_section = _build_data_section(data_summary, target_date_str, weekday_str, cutoff_time_str)
+            data_section = _build_data_section(data_summary, target_date_str, weekday_str, cutoff_time_str, is_incremental=is_incremental)
             user_prompt += data_section
                 
         if not is_incremental:
