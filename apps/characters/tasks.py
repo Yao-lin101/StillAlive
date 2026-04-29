@@ -376,6 +376,8 @@ def _build_data_section(data_summary, target_date_str, weekday_str, cutoff_time_
 """
     if cutoff_time_str != '未知' and 'T00:00:00' not in cutoff_time_str:
         data_section += "\n**【系统强烈提示】当前这一天还没结束！数据只同步到了上述截止时间。你的分析必须处于“正在直播”的视角，评价时要用“截至目前”，绝对不能作结案陈词（比如“今天你一共就走了xx步”、“到这就收工了”），而是要推测他接下去会干嘛。**\n"
+    else:
+        data_section += "\n**【系统提示】今天已完整记录。**\n"
         
     if data_summary.get('phone_app_summary'):
         data_section += f"\n## 手机应用（总计前20）\n{json.dumps(data_summary['phone_app_summary'], ensure_ascii=False)}\n"
@@ -393,7 +395,7 @@ def _build_data_section(data_summary, target_date_str, weekday_str, cutoff_time_
     return data_section
 
 
-def analyze_with_llm(aggregated_data, character_name, persona=None, ai_persona=None, system_inferred_persona=None, previous_report=None, is_incremental=False):
+def analyze_with_llm(aggregated_data, character_name, persona=None, ai_persona=None, system_inferred_persona=None, previous_report=None, is_incremental=False, previous_cutoff_time=None):
     """
     使用 Anthropic API 分析数据
     
@@ -517,19 +519,35 @@ def analyze_with_llm(aggregated_data, character_name, persona=None, ai_persona=N
             
             data_section = _build_data_section(data_summary, target_date_str, weekday_str, cutoff_time_str)
             
-            user_prompt = f"""这是你之前为用户 {character_name} 生成的日报：
+            # 格式化上一次的截止时间
+            prev_time_str = "之前"
+            if previous_cutoff_time:
+                prev_time_str = timezone.localtime(previous_cutoff_time).strftime('%Y-%m-%d %H:%M')
+            curr_time_str = cutoff_time_str
+            if curr_time_str and curr_time_str != '未知':
+                try:
+                    dt = timezone.datetime.fromisoformat(curr_time_str)
+                    curr_time_str = dt.strftime('%Y-%m-%d %H:%M')
+                except Exception:
+                    pass
+            
+            user_prompt = f"""这是你之前为用户 {character_name} 生成的日报（基于 {prev_time_str} 的数据写成）：
 
 {clean_previous_report}
 
 ---
 
-现在有了新的数据，请根据新数据更新这份日报。
+现在，系统获取了截至目前（{curr_time_str}）的当天【最新全量数据快照】。
 
-**严格要求**：
-1. **保持风格一致性**：必须保留原有的语气、口吻、角色设定和整体格式
-2. **数据更新**：用新数据替换旧数据，但不要改变原有结构
-3. **不要重写**：只更新内容，不要完全重写整个日报
-4. **保持沉浸**：绝对不要提及"更新"、"修改"等词语，继续保持你的角色身份
+**重点提示**：
+1. 你需要对比旧日报，并在全量数据中**重点寻找和关注【{prev_time_str} 到 {curr_time_str}】这段时间内的“新活动”**。
+2. 请基于最新的全量数据快照，将这些新活动自然地续写或融入到原有日报中，并更新全局统计结论。
+
+**严格输出要求**：
+1. **保持风格一致性**：必须保留原有的语气、口吻、角色设定和整体格式。
+2. **数据更新**：用新数据替换旧数据，但不要改变原有结构。
+3. **不要重写**：只更新和补充内容，不要完全重写整个日报丢失早前的细节。
+4. **保持沉浸**：绝对不要提及"更新"、"新增数据"等词语，继续保持你的角色身份。
 5. **绝对纯净**：绝对不要包含“好的”、“这是更新后的”等任何过渡或说明文字，直接输出 Markdown 内容本身。
 
 {data_section}
@@ -913,6 +931,7 @@ def generate_daily_reports(self):
                     
                     use_incremental = (target_date == today) and not is_final_summary
                     previous_report = existing_report.analysis_result.get('markdown', '') if existing_report.analysis_result else ''
+                    previous_cutoff_time = existing_report.data_cutoff_time
                     
                     analysis_result = analyze_with_llm(
                         aggregated_data, 
@@ -921,7 +940,8 @@ def generate_daily_reports(self):
                         config.ai_persona, 
                         config.system_inferred_persona,
                         previous_report=previous_report,
-                        is_incremental=use_incremental
+                        is_incremental=use_incremental,
+                        previous_cutoff_time=previous_cutoff_time
                     )
                     
                     existing_report.raw_data = aggregated_data
