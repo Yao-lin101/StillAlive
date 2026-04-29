@@ -290,3 +290,93 @@ class DailyReport(models.Model):
     def __str__(self):
         return f"{self.character.name} - {self.date}"
 
+
+class PersonaHistory(models.Model):
+    """
+    侧写历史记录
+    用于追踪系统推断人设（system_inferred_persona）的变化过程
+    不影响当前侧写，仅用于历史追溯和分析
+    
+    设计原则：
+    1. 每个记录只存"当前这次生成的侧写"
+    2. 每天只能有一条记录（如同一天更新多次则覆盖）
+    3. 通过时间顺序自然形成历史链
+    """
+    TRIGGER_SCHEDULED = 'scheduled'
+    TRIGGER_MANUAL = 'manual'
+    TRIGGER_CHOICES = [
+        (TRIGGER_SCHEDULED, '定时任务'),
+        (TRIGGER_MANUAL, '手动触发'),
+    ]
+
+    config = models.ForeignKey(
+        DailyReportConfig,
+        on_delete=models.CASCADE,
+        related_name='persona_history',
+        help_text='关联的日报配置'
+    )
+    date = models.DateField(
+        help_text='记录日期（每天一条）'
+    )
+    generated_at = models.DateTimeField(
+        auto_now=True,
+        help_text='最后更新时间'
+    )
+    persona_content = models.TextField(
+        blank=True,
+        null=True,
+        default='',
+        help_text='本次生成的侧写内容'
+    )
+    data_dates = models.JSONField(
+        default=list,
+        blank=True,
+        help_text='本次侧写基于哪些日期的数据（日期列表）'
+    )
+    is_first_time = models.BooleanField(
+        default=False,
+        help_text='是否是首次生成侧写'
+    )
+    model_used = models.CharField(
+        max_length=100,
+        blank=True,
+        null=True,
+        help_text='使用的 LLM 模型名称'
+    )
+    trigger_type = models.CharField(
+        max_length=20,
+        choices=TRIGGER_CHOICES,
+        default=TRIGGER_SCHEDULED,
+        help_text='触发方式'
+    )
+
+    class Meta:
+        ordering = ['-date']
+        indexes = [
+            models.Index(fields=['config', '-date']),
+            models.Index(fields=['date']),
+        ]
+        unique_together = ['config', 'date']  # 每个 config 每天只能有一条记录
+        verbose_name = '侧写历史记录'
+        verbose_name_plural = '侧写历史记录'
+
+    def __str__(self):
+        return f"{self.config.character.name} - {self.date}"
+
+    @property
+    def previous_record(self):
+        """获取上一条历史记录（用于对比变化）"""
+        return PersonaHistory.objects.filter(
+            config=self.config,
+            date__lt=self.date
+        ).order_by('-date').first()
+
+    def has_changed_from_previous(self):
+        """判断与上一条记录相比是否发生了变化"""
+        prev = self.previous_record
+        if not prev:
+            return True  # 首次记录，视为变化
+        prev_content = (prev.persona_content or '').strip()
+        curr_content = (self.persona_content or '').strip()
+        return prev_content != curr_content
+
