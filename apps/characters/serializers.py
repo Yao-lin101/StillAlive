@@ -201,8 +201,14 @@ class DailyReportConfigSerializer(serializers.ModelSerializer):
         
         return value
 
+    def validate_persona(self, value):
+        """验证角色人设长度"""
+        if value and len(value) > 1000:
+            raise serializers.ValidationError(f"角色人设不能超过 1000 个字符（当前: {len(value)} 个字符）")
+        return value
+
     def validate_ai_persona(self, value):
-        """验证 AI 人设配置格式"""
+        """验证 AI 人设配置格式和长度"""
         if value is None:
             return {}
         
@@ -213,6 +219,15 @@ class DailyReportConfigSerializer(serializers.ModelSerializer):
         for key in value.keys():
             if key not in allowed_keys:
                 raise serializers.ValidationError(f"不支持的 AI 人设字段: {key}，支持的字段: core_identity, personality_traits, language_style")
+        
+        if 'core_identity' in value and value['core_identity'] and len(value['core_identity']) > 300:
+            raise serializers.ValidationError(f"核心身份不能超过 300 个字符（当前: {len(value['core_identity'])} 个字符）")
+        
+        if 'personality_traits' in value and value['personality_traits'] and len(value['personality_traits']) > 500:
+            raise serializers.ValidationError(f"性格特征不能超过 500 个字符（当前: {len(value['personality_traits'])} 个字符）")
+        
+        if 'language_style' in value and value['language_style'] and len(value['language_style']) > 500:
+            raise serializers.ValidationError(f"语言风格不能超过 500 个字符（当前: {len(value['language_style'])} 个字符）")
         
         return value
 
