@@ -108,9 +108,7 @@ def _build_data_section(data_summary, target_date_str, weekday_str, cutoff_time_
 """
     if cutoff_time_str != '未知' and 'T00:00:00' not in cutoff_time_str:
         data_section += "\n**【系统强烈提示】当前这一天还没结束！数据只同步到了上述截止时间。你的分析必须处于“正在直播”的视角，评价时要用“截至目前”，绝对不能作结案陈词（比如“今天你一共就走了xx步”、“到这就收工了”），而是要推测他接下去会干嘛。**\n"
-    else:
-        data_section += "\n**【系统提示】今天已完整记录。**\n"
-        
+   
     if data_summary.get('phone_app_summary'):
         data_section += f"\n## 手机应用（总计前20）\n{json.dumps(data_summary['phone_app_summary'], ensure_ascii=False)}\n"
         data_section += f"\n## 手机应用（按小时）\n{json.dumps(data_summary.get('phone_app_by_hour', {}), ensure_ascii=False)}\n"
@@ -287,6 +285,37 @@ def analyze_with_llm(aggregated_data, character_name, persona=None, ai_persona=N
 
 请直接输出更新后的完整日报，保持原有风格。绝对不要输出任何开场白或解释性文字！
 """
+        elif not is_incremental and previous_report and previous_report.strip():
+            # 最终总结阶段：整合所有带有中间过程标题的旧日报
+            import re
+            clean_previous_report = re.sub(r'\n+---\n+\*数据截止至：.*?\*\s*$', '', previous_report.strip())
+            
+            data_section = _build_data_section(data_summary, target_date_str, weekday_str, cutoff_time_str)
+            
+            user_prompt = f"""这是今天白天在这个用户不断产生新活动时，逐步更新出来的“直播式”过程日报（包含了许多中途发现和临时增加的小标题）：
+
+{clean_previous_report}
+
+---
+
+现在，今天已经彻底结束。
+这是当天的【最终全量数据快照】：
+
+{data_section}
+
+**最终全天总结整理要求**：
+1. 请结合上述的最终全量数据，把这篇带有很多如“傍晚更新速报”、“最新发现”等中间过程小标题的报告，**提炼、重构成一份结构清晰、首尾呼应的最终全天日报**。
+2. 消除所有“直播中”、“截至目前”、“推测他接下去会”等未完结语气，改成对这一整天的完整结案复盘。
+3. 把白天发现的闪光点和数据异常（比如某时刻的突然爆发）巧妙地融入到统一的章节结构中（例如“作息分析”、“活动画像”等），**绝对不要保留“X点更新速报”这种中途产生的零碎小标题**，让整份报告看起来是一次性写成的。
+4. 依然保持你的沉浸式角色设定！
+5. **绝对纯净**：绝对不要包含“好的”、“这是重构后的全天报告”等任何无关的过渡或说明文字，直接输出完整的 Markdown 内容本身。
+"""
+            if persona and persona.strip():
+                user_prompt += f"\n## 用户自述角色背景\n{persona.strip()}\n"
+                
+            if system_inferred_persona and system_inferred_persona.strip():
+                user_prompt += f"\n## 系统长期观察得出的真实侧写档案\n{system_inferred_persona.strip()}"
+                
         else:
             user_prompt = f"请对用户 {character_name} 在 {data_summary.get('date')} 的活动进行分析。\n"
             
