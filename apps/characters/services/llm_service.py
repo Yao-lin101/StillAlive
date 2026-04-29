@@ -192,7 +192,9 @@ def analyze_with_llm(aggregated_data, character_name, persona=None, ai_persona=N
             'steps_summary': aggregated_data.get('steps_summary', {}),
             'steps_by_hour': aggregated_data.get('steps_by_hour', {}),
             'last_record_time': aggregated_data.get('last_record_time'),
-            'data_cutoff_time': aggregated_data.get('data_cutoff_time')
+            'data_cutoff_time': aggregated_data.get('data_cutoff_time'),
+            'yesterday_active_hours': aggregated_data.get('yesterday_active_hours', []),
+            'day_before_yesterday_active_hours': aggregated_data.get('day_before_yesterday_active_hours', [])
         }
         
         ai_persona = ai_persona or {}
