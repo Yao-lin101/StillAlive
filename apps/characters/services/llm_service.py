@@ -106,8 +106,20 @@ def _build_data_section(data_summary, target_date_str, weekday_str, cutoff_time_
 ## 数据概览
 - 日期: {target_date_str}{weekday_str}（据此推断工作日或节假日）
 - 总记录数: {data_summary.get('total_records', 0)}
-- 活动小时: {data_summary.get('active_hours', [])}
-- 首次活动时间: {data_summary.get('first_activity_hour', '未知')} 点
+- 今日活动小时: {data_summary.get('active_hours', [])}
+"""
+
+    yesterday_hours = data_summary.get('yesterday_active_hours', [])
+    day_before_yesterday_hours = data_summary.get('day_before_yesterday_active_hours', [])
+    
+    if yesterday_hours or day_before_yesterday_hours:
+        data_section += "- 历史辅助（仅供推断睡眠/通宵及近期规律）：\n"
+        if yesterday_hours:
+            data_section += f"  - 昨天活动小时: {yesterday_hours}\n"
+        if day_before_yesterday_hours:
+            data_section += f"  - 前天活动小时: {day_before_yesterday_hours}\n"
+
+    data_section += f"""- 首次活动时间: {data_summary.get('first_activity_hour', '未知')} 点
 - 最后活动时间: {data_summary.get('last_activity_hour', '未知')} 点
 - 数据截止时间: {cutoff_time_str}
 """
