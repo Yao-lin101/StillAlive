@@ -102,22 +102,29 @@ def _build_data_section(data_summary, target_date_str, weekday_str, cutoff_time_
     """
     统一格式化数据概览和应用使用情况，返回用于注入 prompt 的文本
     """
+    def format_hours(hours_list):
+        if not hours_list:
+            return "无记录"
+        return ", ".join(f"{h}点" for h in hours_list)
+
+    active_hours_str = format_hours(data_summary.get('active_hours', []))
+    yesterday_hours = data_summary.get('yesterday_active_hours', [])
+    day_before_yesterday_hours = data_summary.get('day_before_yesterday_active_hours', [])
+
     data_section = f"""
 ## 数据概览
 - 日期: {target_date_str}{weekday_str}（据此推断工作日或节假日）
 - 总记录数: {data_summary.get('total_records', 0)}
-- 今日活动小时: {data_summary.get('active_hours', [])}
+（注：“活动时间段”表示该小时内存在活跃记录。例如“3点, 4点”意味着 03:00-04:59 期间有操作）
+- 今日活动时间段: {active_hours_str}
 """
-
-    yesterday_hours = data_summary.get('yesterday_active_hours', [])
-    day_before_yesterday_hours = data_summary.get('day_before_yesterday_active_hours', [])
     
     if yesterday_hours or day_before_yesterday_hours:
-        data_section += "- 历史辅助（仅供推断睡眠/通宵及近期规律）：\n"
+        data_section += "- 历史辅助（仅供推断睡眠/通宵及近期规律，严禁歪曲或遗漏数字）：\n"
         if yesterday_hours:
-            data_section += f"  - 昨天活动小时: {yesterday_hours}\n"
+            data_section += f"  - 昨天活动时间段: {format_hours(yesterday_hours)}\n"
         if day_before_yesterday_hours:
-            data_section += f"  - 前天活动小时: {day_before_yesterday_hours}\n"
+            data_section += f"  - 前天活动时间段: {format_hours(day_before_yesterday_hours)}\n"
 
     data_section += f"""- 首次活动时间: {data_summary.get('first_activity_hour', '未知')} 点
 - 最后活动时间: {data_summary.get('last_activity_hour', '未知')} 点
