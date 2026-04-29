@@ -98,7 +98,7 @@ def _clean_markdown_wrapper(result_text):
 
 
 
-def _build_data_section(data_summary, target_date_str, weekday_str, cutoff_time_str, is_incremental=False):
+def _build_data_section(data_summary, target_date_str, weekday_str, cutoff_time_str, is_day_ended=False):
     """
     统一格式化数据概览和应用使用情况，返回用于注入 prompt 的文本
     """
@@ -111,24 +111,8 @@ def _build_data_section(data_summary, target_date_str, weekday_str, cutoff_time_
 - 最后活动时间: {data_summary.get('last_activity_hour', '未知')} 点
 - 数据截止时间: {cutoff_time_str}
 """
-    is_day_ended = not is_incremental
-    if cutoff_time_str and cutoff_time_str != '未知' and target_date_str:
-        try:
-            cutoff_dt = timezone.datetime.fromisoformat(cutoff_time_str)
-            target_date_obj = timezone.datetime.fromisoformat(target_date_str).date()
-            local_cutoff_dt = timezone.localtime(cutoff_dt)
-            # 如果数据截止时间已经是目标日期的第二天或更晚，说明这一天已经彻底结束
-            if local_cutoff_dt.date() > target_date_obj:
-                is_day_ended = True
-            else:
-                is_day_ended = False
-        except Exception:
-            pass
-
     if not is_day_ended:
         data_section += "\n**【系统强烈提示】当前这一天还没结束！数据只同步到了上述截止时间。你的分析必须处于“正在直播”的视角，评价时要用“截至目前”，绝对不能作结案陈词（比如“今天你一共就走了xx步”、“到这就收工了”），而是要推测他接下去会干嘛。**\n"
-    else:
-        data_section += "\n**【系统强烈提示】今天已经彻底结束！这是全天的最终结案数据。请进行盖棺定论的总结，绝对不要使用“截至目前”、“进行中”、“还在持续”、“推测接下去会干嘛”等未完结的直播语气！**\n"
    
     if data_summary.get('phone_app_summary'):
         data_section += f"\n## 手机应用（总计前20）\n{json.dumps(data_summary['phone_app_summary'], ensure_ascii=False)}\n"
@@ -235,13 +219,25 @@ def analyze_with_llm(aggregated_data, character_name, persona=None, ai_persona=N
                 weekday_str = f" ({weekday_map[target_date_obj.weekday()]})"
             except Exception:
                 pass
+                
+        is_day_ended = not is_incremental
+        if cutoff_time_str and cutoff_time_str != '未知' and target_date_str:
+            try:
+                cutoff_dt = timezone.datetime.fromisoformat(cutoff_time_str)
+                local_cutoff_dt = timezone.localtime(cutoff_dt)
+                if local_cutoff_dt.date() > target_date_obj:
+                    is_day_ended = True
+                else:
+                    is_day_ended = False
+            except Exception:
+                pass
         
-        if is_incremental and previous_report and previous_report.strip():
+        if not is_day_ended and previous_report and previous_report.strip():
             # 清理上一份日报末尾由于代码自动拼接的数据截止时间尾巴，避免误导大模型或产生双重尾巴
             import re
             clean_previous_report = re.sub(r'\n+---\n+\*数据截止至：.*?\*\s*$', '', previous_report.strip())
             
-            data_section = _build_data_section(data_summary, target_date_str, weekday_str, cutoff_time_str, is_incremental=is_incremental)
+            data_section = _build_data_section(data_summary, target_date_str, weekday_str, cutoff_time_str, is_day_ended=is_day_ended)
             
             # 格式化上一次的截止时间
             prev_time_str = "之前"
@@ -262,12 +258,12 @@ def analyze_with_llm(aggregated_data, character_name, persona=None, ai_persona=N
                 clean_previous_report=clean_previous_report,
                 data_section=data_section
             )
-        elif not is_incremental and previous_report and previous_report.strip():
+        elif is_day_ended and previous_report and previous_report.strip():
             # 最终总结阶段：整合所有带有中间过程标题的旧日报
             import re
             clean_previous_report = re.sub(r'\n+---\n+\*数据截止至：.*?\*\s*$', '', previous_report.strip())
             
-            data_section = _build_data_section(data_summary, target_date_str, weekday_str, cutoff_time_str, is_incremental=is_incremental)
+            data_section = _build_data_section(data_summary, target_date_str, weekday_str, cutoff_time_str, is_day_ended=is_day_ended)
             
             user_prompt = FINAL_SUMMARY_PROMPT.format(
                 clean_previous_report=clean_previous_report,
@@ -290,10 +286,10 @@ def analyze_with_llm(aggregated_data, character_name, persona=None, ai_persona=N
             elif persona and persona.strip():
                 user_prompt += "\n请结合上述自述背景进行分析，使分析更贴合角色。\n"
 
-            data_section = _build_data_section(data_summary, target_date_str, weekday_str, cutoff_time_str, is_incremental=is_incremental)
+            data_section = _build_data_section(data_summary, target_date_str, weekday_str, cutoff_time_str, is_day_ended=is_day_ended)
             user_prompt += data_section
                 
-        if not is_incremental:
+        if is_day_ended:
             if has_custom_ai_persona:
                 user_prompt += f"\n{CUSTOM_FORMAT_INSTRUCTIONS}"
             else:
