@@ -111,7 +111,21 @@ def _build_data_section(data_summary, target_date_str, weekday_str, cutoff_time_
 - 最后活动时间: {data_summary.get('last_activity_hour', '未知')} 点
 - 数据截止时间: {cutoff_time_str}
 """
-    if is_incremental:
+    is_day_ended = not is_incremental
+    if cutoff_time_str and cutoff_time_str != '未知' and target_date_str:
+        try:
+            cutoff_dt = timezone.datetime.fromisoformat(cutoff_time_str)
+            target_date_obj = timezone.datetime.fromisoformat(target_date_str).date()
+            local_cutoff_dt = timezone.localtime(cutoff_dt)
+            # 如果数据截止时间已经是目标日期的第二天或更晚，说明这一天已经彻底结束
+            if local_cutoff_dt.date() > target_date_obj:
+                is_day_ended = True
+            else:
+                is_day_ended = False
+        except Exception:
+            pass
+
+    if not is_day_ended:
         data_section += "\n**【系统强烈提示】当前这一天还没结束！数据只同步到了上述截止时间。你的分析必须处于“正在直播”的视角，评价时要用“截至目前”，绝对不能作结案陈词（比如“今天你一共就走了xx步”、“到这就收工了”），而是要推测他接下去会干嘛。**\n"
     else:
         data_section += "\n**【系统强烈提示】今天已经彻底结束！这是全天的最终结案数据。请进行盖棺定论的总结，绝对不要使用“截至目前”、“进行中”、“还在持续”、“推测接下去会干嘛”等未完结的直播语气！**\n"
