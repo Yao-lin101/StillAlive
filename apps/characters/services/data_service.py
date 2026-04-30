@@ -131,7 +131,7 @@ def _compute_app_duration(app_usage):
     return summary, by_hour
 
 
-def _compute_app_by_time_range(app_usage, end_datetime=None):
+def _compute_app_by_time_range(app_usage, end_datetime=None, other_usage=None):
     """按照应用使用结束点聚合数据，聚合窗口最小为1小时。对于超过5次记录的应用，聚合为字符串统计形式以节省Token。"""
     if not app_usage:
         return None
@@ -157,11 +157,20 @@ def _compute_app_by_time_range(app_usage, end_datetime=None):
             app_item = sorted_usage[j]
             app_end_time = sorted_usage[j + 1]['timestamp'] if j < len(sorted_usage) - 1 else final_boundary
             
-            # 计算当前窗口的总时长
+            # 初步计算时长
+            app_duration = (app_end_time - app_item['timestamp']).total_seconds() / 60
+            
+            if other_usage and app_duration >= 30.0:
+                other_events = [x['timestamp'] for x in other_usage if app_item['timestamp'] < x['timestamp'] < app_end_time]
+                
+                # 长线任务超过30分钟，且被另一端截断3次以上，直接以第一次介入点为准
+                if len(other_events) >= 3:
+                    app_end_time = other_events[0]
+                    app_duration = (app_end_time - app_item['timestamp']).total_seconds() / 60
+            
+            # 以(可能被截断的)最终结束时间来计算当前窗口总时长
             window_duration = (app_end_time - window_start).total_seconds() / 60
             
-            # 添加当前应用到窗口
-            app_duration = (app_end_time - app_item['timestamp']).total_seconds() / 60
             window_apps[app_item['app']].append(round(app_duration, 1))
             
             # 如果窗口时长达到或超过1小时，结束当前窗口
