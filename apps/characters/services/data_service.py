@@ -151,7 +151,7 @@ def _compute_app_by_time_range(app_usage, end_datetime=None, other_usage=None):
         window_start = current['timestamp']
         window_apps = defaultdict(list)
         
-        # 累计窗口内的应用，直到总时长达到或超过1小时
+        # 累计窗口内的应用，只要加入后不超过1小时就继续；如果是首个应用但自身超1小时也加入后结束。
         j = i
         while j < len(sorted_usage):
             app_item = sorted_usage[j]
@@ -168,25 +168,33 @@ def _compute_app_by_time_range(app_usage, end_datetime=None, other_usage=None):
                     app_end_time = other_events[0]
                     app_duration = (app_end_time - app_item['timestamp']).total_seconds() / 60
             
-            # 以(可能被截断的)最终结束时间来计算当前窗口总时长
-            window_duration = (app_end_time - window_start).total_seconds() / 60
+            # 清理掉超过3小时(180分钟)的异常挂机任务（如睡着没关应用）
+            if app_duration >= 180.0:
+                window_end = app_item['timestamp'] if j > i else app_end_time
+                j += 1
+                break
             
+            # 预计算加入当前应用后的窗口总时长
+            projected_window_duration = (app_end_time - window_start).total_seconds() / 60
+            
+            # 核心修正：如果加入这个应用会超出60分钟，并且窗口里已经有其他应用了，把它留到下一个窗口
+            if projected_window_duration > 80 and j > i:
+                window_end = app_item['timestamp']
+                break
+                
+            # 否则加入当前窗口
             window_apps[app_item['app']].append(round(app_duration, 1))
             
-            # 如果窗口时长达到或超过1小时，结束当前窗口
-            if window_duration >= 60:
+            # 如果加入后刚好达到或超过 60 分钟（比如它是当前窗口的第一个元素且很大），结束窗口
+            if projected_window_duration >= 80:
                 window_end = app_end_time
+                j += 1
                 break
             
             j += 1
         else:
-            # 如果所有应用都处理完了，设置窗口结束时间为最后一个应用的结束时间
-            if j > i:
-                last_app = sorted_usage[j - 1]
-                window_end = sorted_usage[j]['timestamp'] if j < len(sorted_usage) else final_boundary
-            else:
-                # 只有一个应用，设置窗口结束时间为下一个小时开始 (或边界时间)
-                window_end = min(window_start.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1), final_boundary) if end_datetime else window_start.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
+            # 所有的应用都处理完了，正常结束
+            window_end = final_boundary
         
         # 格式化时间范围
         start_str = window_start.strftime('%H:%M')
@@ -206,7 +214,8 @@ def _compute_app_by_time_range(app_usage, end_datetime=None, other_usage=None):
                     formatted_apps[app] = durations
             time_range_agg[time_range] = formatted_apps
         
-        i = j + 1 if j < len(sorted_usage) else len(sorted_usage)
+        # i 更新为下一个未处理的应用索引
+        i = j
     
     return time_range_agg
 
