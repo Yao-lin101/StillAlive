@@ -135,11 +135,21 @@ def _build_data_section(data_summary, target_date_str, weekday_str, cutoff_time_
    
     if data_summary.get('phone_app_summary'):
         data_section += f"\n## 手机应用（总计前20）\n{json.dumps(data_summary['phone_app_summary'], ensure_ascii=False)}\n"
-        data_section += f"\n## 手机应用（按小时）\n{json.dumps(data_summary.get('phone_app_by_hour', {}), ensure_ascii=False)}\n"
+        if data_summary.get('phone_app_by_time_range'):
+            # 不过滤时间范围，保留所有应用使用记录
+            filtered_time_ranges = data_summary['phone_app_by_time_range']
+            
+            if filtered_time_ranges:
+                data_section += f"\n## 手机应用（按时间范围，[单次时长/min]）\n{json.dumps(filtered_time_ranges, ensure_ascii=False)}\n"
     
     if data_summary.get('computer_app_summary'):
         data_section += f"\n## 电脑应用（总计前20）\n{json.dumps(data_summary['computer_app_summary'], ensure_ascii=False)}\n"
-        data_section += f"\n## 电脑应用（按小时）\n{json.dumps(data_summary.get('computer_app_by_hour', {}), ensure_ascii=False)}\n"
+        if data_summary.get('computer_app_by_time_range'):
+            # 不过滤时间范围，保留所有应用使用记录
+            filtered_time_ranges = data_summary['computer_app_by_time_range']
+            
+            if filtered_time_ranges:
+                data_section += f"\n## 电脑应用（按时间范围，[单次时长/min]）\n{json.dumps(filtered_time_ranges, ensure_ascii=False)}\n"
     
     if data_summary.get('steps_summary'):
         data_section += f"\n## 今日总步数: {data_summary['steps_summary'].get('total', 0)}\n"
@@ -194,8 +204,8 @@ def analyze_with_llm(aggregated_data, character_name, persona=None, ai_persona=N
             'last_activity_hour': aggregated_data.get('last_activity_hour'),
             'phone_app_summary': aggregated_data.get('phone_app_summary', {}),
             'computer_app_summary': aggregated_data.get('computer_app_summary', {}),
-            'phone_app_by_hour': aggregated_data.get('phone_app_by_hour', {}),
-            'computer_app_by_hour': aggregated_data.get('computer_app_by_hour', {}),
+            'phone_app_by_time_range': aggregated_data.get('phone_app_by_time_range', {}),
+            'computer_app_by_time_range': aggregated_data.get('computer_app_by_time_range', {}),
             'steps_summary': aggregated_data.get('steps_summary', {}),
             'steps_by_hour': aggregated_data.get('steps_by_hour', {}),
             'last_record_time': aggregated_data.get('last_record_time'),

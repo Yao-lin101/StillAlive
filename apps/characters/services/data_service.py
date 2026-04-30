@@ -28,7 +28,8 @@ def _extract_raw_usage(statuses, field_mappings):
             if value:
                 phone_app_usage.append({
                     'hour': hour,
-                    'app': str(value)
+                    'app': str(value),
+                    'timestamp': local_timestamp
                 })
         
         if computer_key and computer_key in data:
@@ -36,7 +37,8 @@ def _extract_raw_usage(statuses, field_mappings):
             if value:
                 computer_app_usage.append({
                     'hour': hour,
-                    'app': str(value)
+                    'app': str(value),
+                    'timestamp': local_timestamp
                 })
         
         if steps_key and steps_key in data:
@@ -68,6 +70,139 @@ def _compute_app_summary(app_usage):
         for hour, apps in hourly.items()
     }
     return summary, by_hour
+
+
+def _compute_app_duration(app_usage):
+    """计算应用的使用时长（分钟），基于应用切换间隔"""
+    if not app_usage:
+        return None, None
+    
+    # 按时间排序
+    sorted_usage = sorted(app_usage, key=lambda x: x['timestamp'])
+    
+    # 合并连续使用的同一个应用
+    merged_usage = []
+    for item in sorted_usage:
+        if not merged_usage or merged_usage[-1]['app'] != item['app']:
+            merged_usage.append(item)
+    
+    duration_summary = defaultdict(float)
+    duration_by_hour = defaultdict(lambda: defaultdict(float))
+    
+    # 计算每个应用的使用时长
+    for i, current in enumerate(merged_usage):
+        if i < len(merged_usage) - 1:
+            next_item = merged_usage[i + 1]
+            duration = (next_item['timestamp'] - current['timestamp']).total_seconds() / 60
+        else:
+            # 最后一个应用，假设使用到下一个小时的开始
+            next_hour = current['timestamp'].replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
+            duration = (next_hour - current['timestamp']).total_seconds() / 60
+        
+
+        
+        # 处理跨小时边界的情况
+        current_hour = current['hour']
+        current_time = current['timestamp']
+        hour_end = current_time.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
+        
+        if current_time + timedelta(minutes=duration) <= hour_end:
+            # 完全在当前小时内
+            duration_summary[current['app']] += duration
+            duration_by_hour[current_hour][current['app']] += duration
+        else:
+            # 跨小时
+            hours_duration = (hour_end - current_time).total_seconds() / 60
+            duration_summary[current['app']] += duration
+            duration_by_hour[current_hour][current['app']] += hours_duration
+            
+            # 计算下一个小时的时长
+            next_hour_duration = duration - hours_duration
+            next_hour_num = (current_hour + 1) % 24
+            duration_by_hour[next_hour_num][current['app']] += next_hour_duration
+    
+    # 转换为普通字典
+    summary = dict(duration_summary)
+    by_hour = {
+        str(hour): dict(apps)
+        for hour, apps in duration_by_hour.items()
+    }
+    
+    return summary, by_hour
+
+
+def _compute_app_by_time_range(app_usage):
+    """按照应用使用结束点聚合数据，聚合窗口最小为1小时，格式：{"00:02-01:06": {"app1": [4.2, 4.6], "app2": [30.0]}}"""
+    if not app_usage:
+        return None
+    
+    # 按时间排序
+    sorted_usage = sorted(app_usage, key=lambda x: x['timestamp'])
+    
+    # 计算每个应用的每次使用时长
+    app_durations = defaultdict(list)
+    for i, current in enumerate(sorted_usage):
+        if i < len(sorted_usage) - 1:
+            next_item = sorted_usage[i + 1]
+            end_time = next_item['timestamp']
+            duration = (end_time - current['timestamp']).total_seconds() / 60
+        else:
+            # 最后一个应用，假设使用到下一个小时的开始
+            end_time = current['timestamp'].replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
+            duration = (end_time - current['timestamp']).total_seconds() / 60
+        
+        app_durations[current['app']].append(round(duration, 1))
+    
+    # 计算时间范围聚合，窗口最小为1小时
+    time_range_agg = {}
+    
+    i = 0
+    while i < len(sorted_usage):
+        current = sorted_usage[i]
+        window_start = current['timestamp']
+        window_apps = defaultdict(list)
+        
+        # 累计窗口内的应用，直到总时长达到或超过1小时
+        j = i
+        while j < len(sorted_usage):
+            app_item = sorted_usage[j]
+            app_end_time = sorted_usage[j + 1]['timestamp'] if j < len(sorted_usage) - 1 else app_item['timestamp'].replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
+            
+            # 计算当前窗口的总时长
+            window_duration = (app_end_time - window_start).total_seconds() / 60
+            
+            # 添加当前应用到窗口
+            app_duration = (app_end_time - app_item['timestamp']).total_seconds() / 60
+            window_apps[app_item['app']].append(round(app_duration, 1))
+            
+            # 如果窗口时长达到或超过1小时，结束当前窗口
+            if window_duration >= 60:
+                window_end = app_end_time
+                break
+            
+            j += 1
+        else:
+            # 如果所有应用都处理完了，设置窗口结束时间为最后一个应用的结束时间
+            if j > i:
+                last_app = sorted_usage[j - 1]
+                window_end = sorted_usage[j]['timestamp'] if j < len(sorted_usage) else last_app['timestamp'].replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
+            else:
+                # 只有一个应用，设置窗口结束时间为下一个小时开始
+                window_end = window_start.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
+        
+        # 格式化时间范围
+        start_str = window_start.strftime('%H:%M')
+        end_str = window_end.strftime('%H:%M')
+        time_range = f"{start_str}-{end_str}"
+        
+        # 添加窗口数据
+        if window_apps:
+            # 转换为普通字典
+            time_range_agg[time_range] = dict(window_apps)
+        
+        i = j + 1 if j < len(sorted_usage) else len(sorted_usage)
+    
+    return time_range_agg
 
 
 def _compute_steps_summary(steps_data):
@@ -137,6 +272,10 @@ def aggregate_status_data(character, field_mappings, target_date, end_datetime=N
     computer_summary, computer_by_hour = _compute_app_summary(computer_app_usage)
     steps_summary, steps_by_hour = _compute_steps_summary(steps_data)
     
+    # 计算按时间范围聚合的应用数据
+    phone_app_by_time_range = _compute_app_by_time_range(phone_app_usage)
+    computer_app_by_time_range = _compute_app_by_time_range(computer_app_usage)
+    
     aggregated = {
         'date': target_date.isoformat(),
         'total_records': statuses.count(),
@@ -150,11 +289,13 @@ def aggregate_status_data(character, field_mappings, target_date, end_datetime=N
     
     if phone_summary:
         aggregated['phone_app_summary'] = phone_summary
-        aggregated['phone_app_by_hour'] = phone_by_hour
+        if phone_app_by_time_range:
+            aggregated['phone_app_by_time_range'] = phone_app_by_time_range
         
     if computer_summary:
         aggregated['computer_app_summary'] = computer_summary
-        aggregated['computer_app_by_hour'] = computer_by_hour
+        if computer_app_by_time_range:
+            aggregated['computer_app_by_time_range'] = computer_app_by_time_range
         
     if steps_summary:
         aggregated['steps_summary'] = steps_summary
