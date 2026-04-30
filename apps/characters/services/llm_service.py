@@ -14,34 +14,32 @@ def extract_text_from_anthropic_response(response):
     """
     安全地从 Anthropic API 的 response 中提取文本，兼容带有 thinking block 的模型。
     """
+    import re
     result_text = None
     thinking_content = None
     
     if hasattr(response, 'content'):
+        text_blocks = []
         for i, block in enumerate(response.content):
             block_type = getattr(block, 'type', 'unknown')
             
             if block_type == 'text':
                 if hasattr(block, 'text') and block.text is not None:
-                    result_text = block.text
-                    break
+                    text_blocks.append(block.text)
             
             if block_type == 'thinking':
                 if hasattr(block, 'thinking') and block.thinking is not None:
                     thinking_content = block.thinking
                     
-        if result_text is None:
-            for i, block in enumerate(response.content):
-                if hasattr(block, 'text') and block.text is not None:
-                    result_text = block.text
-                    break
+        if text_blocks:
+            # 代理 API 可能会将推理过程作为第一个 text block，将最终回复作为最后一个 text block
+            result_text = text_blocks[-1]
         
         if result_text is None:
             try:
                 str_content = str(response.content[-1])
                 if str_content and len(str_content.strip()) > 0:
                     if 'text=' in str_content and 'text=None' not in str_content:
-                        import re
                         match = re.search(r"text='([^']+)'", str_content)
                         if match:
                             result_text = match.group(1)
@@ -50,6 +48,10 @@ def extract_text_from_anthropic_response(response):
                 
     if not result_text and hasattr(response, 'text'):
         result_text = response.text
+        
+    # 以防部分 API 直接在一个 text block 里返回带有 <think> 标签的内容
+    if result_text:
+        result_text = re.sub(r'<think>.*?</think>', '', result_text, flags=re.DOTALL).strip()
         
     return result_text
 
@@ -335,7 +337,7 @@ def analyze_with_llm(aggregated_data, character_name, persona=None, ai_persona=N
             model=model,
             system=system_prompt,
             temperature=0.8,
-            max_tokens=4096,
+            max_tokens=8192,
             messages=[
                 {
                     "role": "user",
@@ -349,6 +351,13 @@ def analyze_with_llm(aggregated_data, character_name, persona=None, ai_persona=N
             return {
                 'markdown': '## 分析失败\n\nAI 返回了空响应。',
                 'error': 'LLM response is empty'
+            }
+            
+        if getattr(response, 'stop_reason', None) == 'max_tokens':
+            logger.error(f"LLM response truncated due to max_tokens! Response: {response}")
+            return {
+                'markdown': '## 分析失败\n\nAI 回复由于长度限制被截断了（可能是思考过程过长）。',
+                'error': 'Response truncated due to max_tokens limit'
             }
         
         result_text = extract_text_from_anthropic_response(response)
