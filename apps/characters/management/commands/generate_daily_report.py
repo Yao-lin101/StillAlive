@@ -211,7 +211,7 @@ class Command(BaseCommand):
             )
             
             use_incremental = update_mode and existing_report is not None
-            previous_report = existing_report.analysis_result.get('markdown', '') if (existing_report and existing_report.analysis_result) else ''
+            previous_report = existing_report.analysis_result.get('markdown', '') if (update_mode and existing_report and existing_report.analysis_result) else ''
             
             if use_incremental:
                 self.stdout.write(
