@@ -142,7 +142,7 @@ def _build_data_section(data_summary, target_date_str, weekday_str, cutoff_time_
             filtered_time_ranges = data_summary['phone_app_by_time_range']
             
             if filtered_time_ranges:
-                data_section += f"\n## 手机应用（按时间范围，[单次时长/min]）\n{json.dumps(filtered_time_ranges, ensure_ascii=False)}\n"
+                data_section += f"\n## 手机应用（按时间范围，[单次时长/min]或\"N次(共Xm,最长Ym)\"）\n{json.dumps(filtered_time_ranges, ensure_ascii=False)}\n"
     
     if data_summary.get('computer_app_summary'):
         data_section += f"\n## 电脑应用（总计前20）\n{json.dumps(data_summary['computer_app_summary'], ensure_ascii=False)}\n"
@@ -151,7 +151,7 @@ def _build_data_section(data_summary, target_date_str, weekday_str, cutoff_time_
             filtered_time_ranges = data_summary['computer_app_by_time_range']
             
             if filtered_time_ranges:
-                data_section += f"\n## 电脑应用（按时间范围，[单次时长/min]）\n{json.dumps(filtered_time_ranges, ensure_ascii=False)}\n"
+                data_section += f"\n## 电脑应用（按时间范围，[单次时长/min]或\"N次(共Xm,最长Ym)\"）\n{json.dumps(filtered_time_ranges, ensure_ascii=False)}\n"
     
     if data_summary.get('steps_summary'):
         data_section += f"\n## 今日总步数: {data_summary['steps_summary'].get('total', 0)}\n"

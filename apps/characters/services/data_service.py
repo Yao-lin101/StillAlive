@@ -131,27 +131,16 @@ def _compute_app_duration(app_usage):
     return summary, by_hour
 
 
-def _compute_app_by_time_range(app_usage):
-    """按照应用使用结束点聚合数据，聚合窗口最小为1小时，格式：{"00:02-01:06": {"app1": [4.2, 4.6], "app2": [30.0]}}"""
+def _compute_app_by_time_range(app_usage, end_datetime=None):
+    """按照应用使用结束点聚合数据，聚合窗口最小为1小时。对于超过5次记录的应用，聚合为字符串统计形式以节省Token。"""
     if not app_usage:
         return None
     
     # 按时间排序
     sorted_usage = sorted(app_usage, key=lambda x: x['timestamp'])
     
-    # 计算每个应用的每次使用时长
-    app_durations = defaultdict(list)
-    for i, current in enumerate(sorted_usage):
-        if i < len(sorted_usage) - 1:
-            next_item = sorted_usage[i + 1]
-            end_time = next_item['timestamp']
-            duration = (end_time - current['timestamp']).total_seconds() / 60
-        else:
-            # 最后一个应用，假设使用到下一个小时的开始
-            end_time = current['timestamp'].replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
-            duration = (end_time - current['timestamp']).total_seconds() / 60
-        
-        app_durations[current['app']].append(round(duration, 1))
+    # 确定数据的最晚结束时间（用于最后一个应用的时长计算）
+    final_boundary = end_datetime if end_datetime else sorted_usage[-1]['timestamp'].replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
     
     # 计算时间范围聚合，窗口最小为1小时
     time_range_agg = {}
@@ -166,7 +155,7 @@ def _compute_app_by_time_range(app_usage):
         j = i
         while j < len(sorted_usage):
             app_item = sorted_usage[j]
-            app_end_time = sorted_usage[j + 1]['timestamp'] if j < len(sorted_usage) - 1 else app_item['timestamp'].replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
+            app_end_time = sorted_usage[j + 1]['timestamp'] if j < len(sorted_usage) - 1 else final_boundary
             
             # 计算当前窗口的总时长
             window_duration = (app_end_time - window_start).total_seconds() / 60
@@ -185,10 +174,10 @@ def _compute_app_by_time_range(app_usage):
             # 如果所有应用都处理完了，设置窗口结束时间为最后一个应用的结束时间
             if j > i:
                 last_app = sorted_usage[j - 1]
-                window_end = sorted_usage[j]['timestamp'] if j < len(sorted_usage) else last_app['timestamp'].replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
+                window_end = sorted_usage[j]['timestamp'] if j < len(sorted_usage) else final_boundary
             else:
-                # 只有一个应用，设置窗口结束时间为下一个小时开始
-                window_end = window_start.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
+                # 只有一个应用，设置窗口结束时间为下一个小时开始 (或边界时间)
+                window_end = min(window_start.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1), final_boundary) if end_datetime else window_start.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
         
         # 格式化时间范围
         start_str = window_start.strftime('%H:%M')
@@ -197,8 +186,16 @@ def _compute_app_by_time_range(app_usage):
         
         # 添加窗口数据
         if window_apps:
-            # 转换为普通字典
-            time_range_agg[time_range] = dict(window_apps)
+            formatted_apps = {}
+            for app, durations in window_apps.items():
+                if len(durations) > 5:
+                    total_time = round(sum(durations), 1)
+                    max_time = round(max(durations), 1)
+                    count = len(durations)
+                    formatted_apps[app] = f"{count}次(共{total_time}m,最长{max_time}m)"
+                else:
+                    formatted_apps[app] = durations
+            time_range_agg[time_range] = formatted_apps
         
         i = j + 1 if j < len(sorted_usage) else len(sorted_usage)
     
@@ -273,8 +270,8 @@ def aggregate_status_data(character, field_mappings, target_date, end_datetime=N
     steps_summary, steps_by_hour = _compute_steps_summary(steps_data)
     
     # 计算按时间范围聚合的应用数据
-    phone_app_by_time_range = _compute_app_by_time_range(phone_app_usage)
-    computer_app_by_time_range = _compute_app_by_time_range(computer_app_usage)
+    phone_app_by_time_range = _compute_app_by_time_range(phone_app_usage, end_datetime)
+    computer_app_by_time_range = _compute_app_by_time_range(computer_app_usage, end_datetime)
     
     aggregated = {
         'date': target_date.isoformat(),
