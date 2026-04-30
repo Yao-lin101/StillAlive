@@ -328,6 +328,11 @@ def analyze_with_llm(aggregated_data, character_name, persona=None, ai_persona=N
             else:
                 user_prompt += f"\n{DEFAULT_FORMAT_INSTRUCTIONS}"
 
+        print("\n" + "="*20 + " LLM Analysis Prompt Start " + "="*20)
+        print(f"System Prompt:\n{system_prompt}")
+        print(f"\nUser Prompt:\n{user_prompt}")
+        print("="*20 + " LLM Analysis Prompt End " + "="*20 + "\n")
+        
         logger.info("=== LLM Analysis Prompt Start ===")
         logger.info(f"System Prompt:\n{system_prompt}")
         logger.info(f"User Prompt:\n{user_prompt}")
