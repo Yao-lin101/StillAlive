@@ -122,11 +122,9 @@ class Command(BaseCommand):
                 else:
                     self.stdout.write(
                         self.style.WARNING(
-                            f'Existing report found. Deleting and regenerating (force mode)...'
+                            f'Existing report found. Will overwrite completely after generation (force mode)...'
                         )
                     )
-                    existing_report.delete()
-                    existing_report = None
             else:
                 self.stderr.write(
                     self.style.ERROR(

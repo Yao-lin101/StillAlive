@@ -263,6 +263,9 @@ def generate_daily_reports(self):
                         previous_cutoff_time=previous_cutoff_time
                     )
                     
+                    if 'error' in analysis_result:
+                        raise Exception(f"LLM Analysis failed: {analysis_result['error']}")
+                    
                     existing_report.raw_data = aggregated_data
                     existing_report.analysis_result = analysis_result
                     existing_report.last_record_time = new_last_record_time
@@ -280,6 +283,9 @@ def generate_daily_reports(self):
                     logger.info(f"No existing report for {character.name} on {target_date}, creating new report")
                     
                     analysis_result = analyze_with_llm(aggregated_data, character.name, config.persona, config.ai_persona, config.system_inferred_persona)
+                    
+                    if 'error' in analysis_result:
+                        raise Exception(f"LLM Analysis failed: {analysis_result['error']}")
                     
                     DailyReport.objects.create(
                         character=character,
