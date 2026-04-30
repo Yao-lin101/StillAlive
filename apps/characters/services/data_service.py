@@ -288,8 +288,8 @@ def aggregate_status_data(character, field_mappings, target_date, end_datetime=N
     steps_summary, steps_by_hour = _compute_steps_summary(steps_data)
     
     # 计算按时间范围聚合的应用数据
-    phone_app_by_time_range = _compute_app_by_time_range(phone_app_usage, end_datetime)
-    computer_app_by_time_range = _compute_app_by_time_range(computer_app_usage, end_datetime)
+    phone_app_by_time_range = _compute_app_by_time_range(phone_app_usage, end_datetime, other_usage=computer_app_usage)
+    computer_app_by_time_range = _compute_app_by_time_range(computer_app_usage, end_datetime, other_usage=phone_app_usage)
     
     aggregated = {
         'date': target_date.isoformat(),
