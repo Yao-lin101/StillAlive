@@ -6,6 +6,9 @@ from apps.characters.models import CharacterStatus
 
 logger = logging.getLogger(__name__)
 
+# 活跃时间区间的最大间隔（分钟）
+ACTIVE_INTERVAL_MAX_GAP = 60
+
 def _extract_raw_usage(statuses, field_mappings):
     """提取手机应用、电脑应用和步数的原始流水，以及当天的活跃小时集合和活跃时间点"""
     phone_key = field_mappings.get('phone_app')
@@ -291,7 +294,7 @@ def _get_historical_active_hours(character, start_time, end_time, field_mappings
 
 def _compute_active_time_ranges(active_timestamps, last_record_time):
     """
-    计算活跃时间区间，剔除超过180分钟的间隔
+    计算活跃时间区间，剔除超过ACTIVE_INTERVAL_MAX_GAP分钟的间隔
     
     Args:
         active_timestamps: 活跃时间点列表，已排序
@@ -311,8 +314,8 @@ def _compute_active_time_ranges(active_timestamps, last_record_time):
         current_time = active_timestamps[i]
         time_diff = (current_time - current_end).total_seconds() / 60
         
-        # 如果时间间隔超过180分钟，结束当前区间并开始新区间
-        if time_diff > 180:
+        # 如果时间间隔超过最大间隔，结束当前区间并开始新区间
+        if time_diff > ACTIVE_INTERVAL_MAX_GAP:
             time_ranges.append((current_start, current_end))
             current_start = current_time
         

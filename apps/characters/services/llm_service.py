@@ -7,6 +7,7 @@ from .prompts import (
     INCREMENTAL_UPDATE_PROMPT, FINAL_SUMMARY_PROMPT,
     CUSTOM_FORMAT_INSTRUCTIONS, DEFAULT_FORMAT_INSTRUCTIONS
 )
+from .data_service import ACTIVE_INTERVAL_MAX_GAP
 
 logger = logging.getLogger(__name__)
 
@@ -122,7 +123,7 @@ def _build_data_section(data_summary, target_date_str, weekday_str, cutoff_time_
 ## 数据概览
 - 日期: {target_date_str}{weekday_str}（据此推断工作日或节假日）
 - 总记录数: {data_summary.get('total_records', 0)}
-（注：“活动时间段”表示连续活跃的时间区间。例如“02:05-06:40”意味着该时间段内有操作）
+（注：“活动时间段”超过{ACTIVE_INTERVAL_MAX_GAP}分钟的间隔会被视为不同区间，具体以app使用时长进行判断是否活跃）
 - 今日活动时间段: {active_ranges_str}
 """
     
@@ -133,8 +134,7 @@ def _build_data_section(data_summary, target_date_str, weekday_str, cutoff_time_
         if day_before_yesterday_ranges != "无记录":
             data_section += f"  - 前天活动时间段: {day_before_yesterday_ranges}\n"
 
-    data_section += f"""- 首次活动时间: {data_summary.get('first_activity_hour', '未知')} 点
-- 最后活动时间: {data_summary.get('last_activity_hour', '未知')} 点
+    data_section += f"""
 - 数据截止时间: {cutoff_time_str}
 """
     if not is_day_ended:
