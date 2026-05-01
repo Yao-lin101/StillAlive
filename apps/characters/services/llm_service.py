@@ -206,10 +206,7 @@ def analyze_with_llm(aggregated_data, character_name, persona=None, ai_persona=N
         data_summary = {
             'date': aggregated_data.get('date'),
             'total_records': aggregated_data.get('total_records', 0),
-            'active_hours': aggregated_data.get('active_hours', []),
             'active_time_ranges': aggregated_data.get('active_time_ranges', []),
-            'first_activity_hour': aggregated_data.get('first_activity_hour'),
-            'last_activity_hour': aggregated_data.get('last_activity_hour'),
             'phone_app_summary': aggregated_data.get('phone_app_summary', {}),
             'computer_app_summary': aggregated_data.get('computer_app_summary', {}),
             'phone_app_by_time_range': aggregated_data.get('phone_app_by_time_range', {}),
@@ -218,9 +215,7 @@ def analyze_with_llm(aggregated_data, character_name, persona=None, ai_persona=N
             'steps_by_hour': aggregated_data.get('steps_by_hour', {}),
             'last_record_time': aggregated_data.get('last_record_time'),
             'data_cutoff_time': aggregated_data.get('data_cutoff_time'),
-            'yesterday_active_hours': aggregated_data.get('yesterday_active_hours', []),
             'yesterday_active_time_ranges': aggregated_data.get('yesterday_active_time_ranges', []),
-            'day_before_yesterday_active_hours': aggregated_data.get('day_before_yesterday_active_hours', []),
             'day_before_yesterday_active_time_ranges': aggregated_data.get('day_before_yesterday_active_time_ranges', [])
         }
         

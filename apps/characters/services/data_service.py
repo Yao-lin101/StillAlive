@@ -384,11 +384,7 @@ def aggregate_status_data(character, field_mappings, target_date, end_datetime=N
         'total_records': statuses.count(),
         'last_record_time': last_record_time.isoformat() if last_record_time else None,
         'data_cutoff_time': timezone.localtime(end_datetime).isoformat() if timezone.is_aware(end_datetime) else end_datetime.isoformat(),
-        
-        'active_hours': active_hours,
         'active_time_ranges': formatted_active_ranges,
-        'first_activity_hour': min(active_hours) if active_hours else '未知',
-        'last_activity_hour': max(active_hours) if active_hours else '未知',
     }
     
     if phone_summary:
@@ -435,9 +431,7 @@ def aggregate_status_data(character, field_mappings, target_date, end_datetime=N
         end_str = end.strftime('%H:%M')
         formatted_day_before_yesterday_ranges.append(f"{start_str}-{end_str}")
     
-    aggregated['yesterday_active_hours'] = yesterday_hours
     aggregated['yesterday_active_time_ranges'] = formatted_yesterday_ranges
-    aggregated['day_before_yesterday_active_hours'] = day_before_yesterday_hours
     aggregated['day_before_yesterday_active_time_ranges'] = formatted_day_before_yesterday_ranges
     
     return aggregated
