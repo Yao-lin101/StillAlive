@@ -133,6 +133,10 @@ def update_system_persona(config, yesterday_report_text=None, trigger_type='sche
             trend_guidance=trend_guidance
         )
 
+        print("\n" + "="*20 + " Persona Analysis Prompt Start " + "="*20)
+        print(f"System Prompt:\n{system_prompt}")
+        print(f"\nUser Prompt:\n{user_prompt}")
+        print("="*20 + " Persona Analysis Prompt End " + "="*20 + "\n")
         
         response = client.messages.create(
             model=model,
