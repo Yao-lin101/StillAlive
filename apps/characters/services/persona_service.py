@@ -5,10 +5,12 @@ from django.conf import settings
 from apps.characters.models import DailyReport, PersonaHistory
 from .llm_service import extract_text_from_anthropic_response
 from .prompts import (
-    PERSONA_SYSTEM_PROMPT_BASE,
+    PERSONA_SYSTEM_PROMPT_DEFAULT,
+    PERSONA_SYSTEM_PROMPT_CUSTOM,
     PERSONA_TREND_GUIDANCE_FIRST,
     PERSONA_TREND_GUIDANCE_UPDATE,
-    PERSONA_USER_PROMPT_TEMPLATE
+    PERSONA_USER_PROMPT_DEFAULT,
+    PERSONA_USER_PROMPT_CUSTOM
 )
 
 
@@ -33,9 +35,7 @@ def _get_raw_data_summary(report):
     return json.dumps({
         'weekday': weekday_str,
         'total_records': report.raw_data.get('total_records'),
-        'active_hours': report.raw_data.get('active_hours'),
-        'first_activity_hour': report.raw_data.get('first_activity_hour'),
-        'last_activity_hour': report.raw_data.get('last_activity_hour'),
+        'active_time_ranges': report.raw_data.get('active_time_ranges'),
         'phone_app_summary': report.raw_data.get('phone_app_summary'),
         'computer_app_summary': report.raw_data.get('computer_app_summary'),
         'steps_summary': report.raw_data.get('steps_summary')
@@ -120,13 +120,15 @@ def update_system_persona(config, yesterday_report_text=None, trigger_type='sche
             if language_style:
                 language_style_section = f"\n## 语言风格\n{language_style}\n"
             
-            system_prompt = f"{ai_identity_desc}\n{language_style_section}\n\n在此基础上，{PERSONA_SYSTEM_PROMPT_BASE}"
+            system_prompt = f"{ai_identity_desc}\n{language_style_section}\n\n{PERSONA_SYSTEM_PROMPT_CUSTOM}"
+            user_prompt_template = PERSONA_USER_PROMPT_CUSTOM
         else:
-            system_prompt = PERSONA_SYSTEM_PROMPT_BASE
+            system_prompt = PERSONA_SYSTEM_PROMPT_DEFAULT
+            user_prompt_template = PERSONA_USER_PROMPT_DEFAULT
         
         trend_guidance = PERSONA_TREND_GUIDANCE_FIRST if is_first_time else PERSONA_TREND_GUIDANCE_UPDATE
         
-        user_prompt = PERSONA_USER_PROMPT_TEMPLATE.format(
+        user_prompt = user_prompt_template.format(
             user_claimed_persona=config.persona or "（无）",
             last_inferred_persona=config.system_inferred_persona or "（这是第一次评估，暂无历史侧写）",
             data_section=data_section,
