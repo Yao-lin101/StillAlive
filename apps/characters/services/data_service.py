@@ -7,7 +7,7 @@ from apps.characters.models import CharacterStatus
 logger = logging.getLogger(__name__)
 
 def _extract_raw_usage(statuses, field_mappings):
-    """提取手机应用、电脑应用和步数的原始流水，以及当天的活跃小时集合"""
+    """提取手机应用、电脑应用和步数的原始流水，以及当天的活跃小时集合和活跃时间点"""
     phone_key = field_mappings.get('phone_app')
     computer_key = field_mappings.get('computer_app')
     steps_key = field_mappings.get('steps')
@@ -16,12 +16,14 @@ def _extract_raw_usage(statuses, field_mappings):
     computer_app_usage = []
     steps_data = []
     active_hours = set()
+    active_timestamps = []
     
     for status in statuses:
         local_timestamp = timezone.localtime(status.timestamp)
         data = status.data
         hour = local_timestamp.hour
         active_hours.add(hour)
+        active_timestamps.append(local_timestamp)
         
         if phone_key and phone_key in data:
             value = data[phone_key]
@@ -50,7 +52,7 @@ def _extract_raw_usage(statuses, field_mappings):
             except (ValueError, TypeError):
                 pass
                 
-    return phone_app_usage, computer_app_usage, steps_data, sorted(list(active_hours))
+    return phone_app_usage, computer_app_usage, steps_data, sorted(list(active_hours)), sorted(active_timestamps)
 
 
 def _compute_app_summary(app_usage):
@@ -240,17 +242,58 @@ def _compute_steps_summary(steps_data):
 
 
 def _get_historical_active_hours(character, start_time, end_time):
-    """查询指定时间段内的活跃小时集合"""
+    """查询指定时间段内的活跃小时集合和活跃时间点"""
     statuses = CharacterStatus.objects.filter(
         character=character,
         timestamp__gte=start_time,
         timestamp__lt=end_time
-    ).values_list('timestamp', flat=True)
+    ).order_by('timestamp').values_list('timestamp', flat=True)
     
     active_hours = set()
+    active_timestamps = []
     for ts in statuses:
-        active_hours.add(timezone.localtime(ts).hour)
-    return sorted(list(active_hours))
+        local_ts = timezone.localtime(ts)
+        active_hours.add(local_ts.hour)
+        active_timestamps.append(local_ts)
+    return sorted(list(active_hours)), active_timestamps
+
+
+def _compute_active_time_ranges(active_timestamps, last_record_time):
+    """
+    计算活跃时间区间，剔除超过60分钟的间隔
+    
+    Args:
+        active_timestamps: 活跃时间点列表，已排序
+        last_record_time: 最后一次同步的时间
+        
+    Returns:
+        list: 活跃时间区间列表，格式为 [(start_time, end_time), ...]
+    """
+    if not active_timestamps:
+        return []
+    
+    time_ranges = []
+    current_start = active_timestamps[0]
+    current_end = active_timestamps[0]
+    
+    for i in range(1, len(active_timestamps)):
+        current_time = active_timestamps[i]
+        time_diff = (current_time - current_end).total_seconds() / 60
+        
+        # 如果时间间隔超过60分钟，结束当前区间并开始新区间
+        if time_diff > 60:
+            time_ranges.append((current_start, current_end))
+            current_start = current_time
+        
+        current_end = current_time
+    
+    # 添加最后一个区间，结束时间为最后一次同步的时间
+    if current_start:
+        # 确保最后一个区间的结束时间是最后一次同步的时间
+        final_end = last_record_time if last_record_time else current_end
+        time_ranges.append((current_start, final_end))
+    
+    return time_ranges
 
 
 def aggregate_status_data(character, field_mappings, target_date, end_datetime=None):
@@ -281,7 +324,7 @@ def aggregate_status_data(character, field_mappings, target_date, end_datetime=N
         
     latest_status = statuses.last()
     
-    phone_app_usage, computer_app_usage, steps_data, active_hours = _extract_raw_usage(statuses, field_mappings)
+    phone_app_usage, computer_app_usage, steps_data, active_hours, active_timestamps = _extract_raw_usage(statuses, field_mappings)
     
     phone_summary, phone_by_hour = _compute_app_summary(phone_app_usage)
     computer_summary, computer_by_hour = _compute_app_summary(computer_app_usage)
@@ -291,13 +334,25 @@ def aggregate_status_data(character, field_mappings, target_date, end_datetime=N
     phone_app_by_time_range = _compute_app_by_time_range(phone_app_usage, end_datetime, other_usage=computer_app_usage)
     computer_app_by_time_range = _compute_app_by_time_range(computer_app_usage, end_datetime, other_usage=phone_app_usage)
     
+    # 计算活跃时间区间
+    last_record_time = timezone.localtime(latest_status.timestamp) if latest_status else None
+    active_time_ranges = _compute_active_time_ranges(active_timestamps, last_record_time)
+    
+    # 格式化活跃时间区间为字符串列表
+    formatted_active_ranges = []
+    for start, end in active_time_ranges:
+        start_str = start.strftime('%H:%M')
+        end_str = end.strftime('%H:%M')
+        formatted_active_ranges.append(f"{start_str}-{end_str}")
+    
     aggregated = {
         'date': target_date.isoformat(),
         'total_records': statuses.count(),
-        'last_record_time': timezone.localtime(latest_status.timestamp).isoformat() if latest_status else None,
+        'last_record_time': last_record_time.isoformat() if last_record_time else None,
         'data_cutoff_time': timezone.localtime(end_datetime).isoformat() if timezone.is_aware(end_datetime) else end_datetime.isoformat(),
         
         'active_hours': active_hours,
+        'active_time_ranges': formatted_active_ranges,
         'first_activity_hour': min(active_hours) if active_hours else '未知',
         'last_activity_hour': max(active_hours) if active_hours else '未知',
     }
@@ -316,17 +371,38 @@ def aggregate_status_data(character, field_mappings, target_date, end_datetime=N
         aggregated['steps_summary'] = steps_summary
         aggregated['steps_by_hour'] = steps_by_hour
         
-    aggregated['yesterday_active_hours'] = _get_historical_active_hours(
+    # 处理昨天的活跃时间
+    yesterday_hours, yesterday_timestamps = _get_historical_active_hours(
         character, 
         start_datetime - timedelta(days=1), 
         start_datetime
     )
+    # 计算昨天的活跃时间区间
+    yesterday_ranges = _compute_active_time_ranges(yesterday_timestamps, None)
+    formatted_yesterday_ranges = []
+    for start, end in yesterday_ranges:
+        start_str = start.strftime('%H:%M')
+        end_str = end.strftime('%H:%M')
+        formatted_yesterday_ranges.append(f"{start_str}-{end_str}")
     
-    aggregated['day_before_yesterday_active_hours'] = _get_historical_active_hours(
+    # 处理前天的活跃时间
+    day_before_yesterday_hours, day_before_yesterday_timestamps = _get_historical_active_hours(
         character, 
         start_datetime - timedelta(days=2), 
         start_datetime - timedelta(days=1)
     )
+    # 计算前天的活跃时间区间
+    day_before_yesterday_ranges = _compute_active_time_ranges(day_before_yesterday_timestamps, None)
+    formatted_day_before_yesterday_ranges = []
+    for start, end in day_before_yesterday_ranges:
+        start_str = start.strftime('%H:%M')
+        end_str = end.strftime('%H:%M')
+        formatted_day_before_yesterday_ranges.append(f"{start_str}-{end_str}")
+    
+    aggregated['yesterday_active_hours'] = yesterday_hours
+    aggregated['yesterday_active_time_ranges'] = formatted_yesterday_ranges
+    aggregated['day_before_yesterday_active_hours'] = day_before_yesterday_hours
+    aggregated['day_before_yesterday_active_time_ranges'] = formatted_day_before_yesterday_ranges
     
     return aggregated
 

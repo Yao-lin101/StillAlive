@@ -4,6 +4,13 @@ from django.utils import timezone
 from django.conf import settings
 from apps.characters.models import DailyReport, PersonaHistory
 from .llm_service import extract_text_from_anthropic_response
+from .prompts import (
+    PERSONA_SYSTEM_PROMPT_BASE,
+    PERSONA_TREND_GUIDANCE_FIRST,
+    PERSONA_TREND_GUIDANCE_UPDATE,
+    PERSONA_USER_PROMPT_TEMPLATE
+)
+
 
 logger = logging.getLogger(__name__)
 
@@ -92,29 +99,40 @@ def update_system_persona(config, yesterday_report_text=None, trigger_type='sche
         else:
             data_section = f"以下是该用户过去几天（最多7天）的【纯客观活动聚合数据 JSON】（按时间顺序）：\n{reports_text}\n\n请基于这些客观数据，结合你之前的侧写档案，更新他的真实侧写档案。"
 
-        system_prompt = "你是一个极度冷酷、尖锐的心理与行为侧写师，负责通过观察一个人的日常活动记录，暗中推断他的真实人设。"
+        # 构建侧写系统提示词
+        ai_persona = config.ai_persona or {}
+        core_identity = ai_persona.get('core_identity', '')
+        personality_traits = ai_persona.get('personality_traits', '')
+        language_style = ai_persona.get('language_style', '')
         
-        if is_first_time:
-            trend_guidance = """1. 寻找模式：从多天的数据中识别稳定的行为模式和核心特征。"""
+        has_custom_ai_persona = bool(core_identity or personality_traits or language_style)
+        
+        if has_custom_ai_persona:
+            ai_identity_parts = []
+            if core_identity:
+                ai_identity_parts.append(core_identity)
+            if personality_traits:
+                ai_identity_parts.append(personality_traits)
+            
+            ai_identity_desc = "\n".join(ai_identity_parts)
+            
+            language_style_section = ""
+            if language_style:
+                language_style_section = f"\n## 语言风格\n{language_style}\n"
+            
+            system_prompt = f"{ai_identity_desc}\n{language_style_section}\n\n在此基础上，{PERSONA_SYSTEM_PROMPT_BASE}"
         else:
-            trend_guidance = """1. 观察趋势：从多天的数据中识别【正在发生的变化趋势】。
-   - 如果是持续的、多天一致的变化（如连续早睡），请更新侧写以反映真实状态。
-   - 如果只是单天反常（如某天突然早睡但其他时候都是夜猫子），请保持原有警惕（比如："虽然今天早睡了，但大概率只是通宵后的补觉"）。
-   - 关键：你有 7 天数据，不要把任何变化都当作"单独一天的反常"，要判断这是趋势还是噪音。"""
+            system_prompt = PERSONA_SYSTEM_PROMPT_BASE
         
-        user_prompt = f"""以下是该用户自己声称的人设背景：
-{config.persona or "（无）"}
+        trend_guidance = PERSONA_TREND_GUIDANCE_FIRST if is_first_time else PERSONA_TREND_GUIDANCE_UPDATE
+        
+        user_prompt = PERSONA_USER_PROMPT_TEMPLATE.format(
+            user_claimed_persona=config.persona or "（无）",
+            last_inferred_persona=config.system_inferred_persona or "（这是第一次评估，暂无历史侧写）",
+            data_section=data_section,
+            trend_guidance=trend_guidance
+        )
 
-以下是你上次对他进行的暗中侧写档案：
-{config.system_inferred_persona or "（这是第一次评估，暂无历史侧写）"}
-
-{data_section}
-
-【重要要求】：
-{trend_guidance}
-2. 揭穿谎言：如果实际行为严重打脸了他"自己声称的人设"，请在侧写中毫不留情地将其标记为"假装努力"或"自欺欺人"。
-3. 高度抽象：侧写档案必须是对其性格、真实身份、生活状态的【宏观定性总结】（如"昼夜颠倒的赛博劳工"、"假装躺平实则焦虑找工作"）。**绝对不允许在侧写中罗列具体日期（如"4月23日"）或具体的数据（如"用了16次"）**，你是提炼核心特征，不是在写财务报表！
-4. 严格精简：不要寒暄，不需要解释过程，直接输出最终的侧写档案，务必控制在 150 字以内，字字诛心。"""
         
         response = client.messages.create(
             model=model,

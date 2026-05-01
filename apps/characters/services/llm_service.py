@@ -109,24 +109,29 @@ def _build_data_section(data_summary, target_date_str, weekday_str, cutoff_time_
             return "无记录"
         return ", ".join(f"{h}点" for h in hours_list)
 
-    active_hours_str = format_hours(data_summary.get('active_hours', []))
-    yesterday_hours = data_summary.get('yesterday_active_hours', [])
-    day_before_yesterday_hours = data_summary.get('day_before_yesterday_active_hours', [])
+    def format_time_ranges(ranges_list):
+        if not ranges_list:
+            return "无记录"
+        return ", ".join(ranges_list)
+
+    active_ranges_str = format_time_ranges(data_summary.get('active_time_ranges', []))
+    yesterday_ranges = format_time_ranges(data_summary.get('yesterday_active_time_ranges', []))
+    day_before_yesterday_ranges = format_time_ranges(data_summary.get('day_before_yesterday_active_time_ranges', []))
 
     data_section = f"""
 ## 数据概览
 - 日期: {target_date_str}{weekday_str}（据此推断工作日或节假日）
 - 总记录数: {data_summary.get('total_records', 0)}
-（注：“活动时间段”表示该小时内存在活跃记录。例如“3点, 4点”意味着 03:00-04:59 期间有操作）
-- 今日活动时间段: {active_hours_str}
+（注：“活动时间段”表示连续活跃的时间区间。例如“02:05-06:40”意味着该时间段内有操作）
+- 今日活动时间段: {active_ranges_str}
 """
     
-    if yesterday_hours or day_before_yesterday_hours:
+    if yesterday_ranges != "无记录" or day_before_yesterday_ranges != "无记录":
         data_section += "- 历史辅助（仅供推断睡眠/通宵及近期规律，严禁歪曲或遗漏数字）：\n"
-        if yesterday_hours:
-            data_section += f"  - 昨天活动时间段: {format_hours(yesterday_hours)}\n"
-        if day_before_yesterday_hours:
-            data_section += f"  - 前天活动时间段: {format_hours(day_before_yesterday_hours)}\n"
+        if yesterday_ranges != "无记录":
+            data_section += f"  - 昨天活动时间段: {yesterday_ranges}\n"
+        if day_before_yesterday_ranges != "无记录":
+            data_section += f"  - 前天活动时间段: {day_before_yesterday_ranges}\n"
 
     data_section += f"""- 首次活动时间: {data_summary.get('first_activity_hour', '未知')} 点
 - 最后活动时间: {data_summary.get('last_activity_hour', '未知')} 点
@@ -202,6 +207,7 @@ def analyze_with_llm(aggregated_data, character_name, persona=None, ai_persona=N
             'date': aggregated_data.get('date'),
             'total_records': aggregated_data.get('total_records', 0),
             'active_hours': aggregated_data.get('active_hours', []),
+            'active_time_ranges': aggregated_data.get('active_time_ranges', []),
             'first_activity_hour': aggregated_data.get('first_activity_hour'),
             'last_activity_hour': aggregated_data.get('last_activity_hour'),
             'phone_app_summary': aggregated_data.get('phone_app_summary', {}),
@@ -213,7 +219,9 @@ def analyze_with_llm(aggregated_data, character_name, persona=None, ai_persona=N
             'last_record_time': aggregated_data.get('last_record_time'),
             'data_cutoff_time': aggregated_data.get('data_cutoff_time'),
             'yesterday_active_hours': aggregated_data.get('yesterday_active_hours', []),
-            'day_before_yesterday_active_hours': aggregated_data.get('day_before_yesterday_active_hours', [])
+            'yesterday_active_time_ranges': aggregated_data.get('yesterday_active_time_ranges', []),
+            'day_before_yesterday_active_hours': aggregated_data.get('day_before_yesterday_active_hours', []),
+            'day_before_yesterday_active_time_ranges': aggregated_data.get('day_before_yesterday_active_time_ranges', [])
         }
         
         ai_persona = ai_persona or {}
