@@ -309,7 +309,7 @@ def analyze_with_llm(aggregated_data, character_name, persona=None, ai_persona=N
                 user_prompt += f"\n## 用户自述角色背景\n{persona.strip()}\n"
                 
             if system_inferred_persona and system_inferred_persona.strip():
-                user_prompt += f"\n## 系统长期观察得出的真实侧写档案\n{system_inferred_persona.strip()}"
+                user_prompt += f"\n## 你观察得出的真实侧写档案\n{system_inferred_persona.strip()}"
                 
         else:
             user_prompt = f"请对用户 {character_name} 在 {data_summary.get('date')} 的活动进行分析。\n"
@@ -318,7 +318,7 @@ def analyze_with_llm(aggregated_data, character_name, persona=None, ai_persona=N
                 user_prompt += f"\n## 用户自述角色背景\n{persona.strip()}\n"
                 
             if system_inferred_persona and system_inferred_persona.strip():
-                user_prompt += f"\n## 系统长期观察得出的真实侧写档案\n{system_inferred_persona.strip()}"
+                user_prompt += f"\n## 你观察得出的真实侧写档案\n{system_inferred_persona.strip()}"
             elif persona and persona.strip():
                 user_prompt += "\n请结合上述自述背景进行分析，使分析更贴合角色。\n"
 
