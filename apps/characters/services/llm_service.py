@@ -208,7 +208,28 @@ def _build_data_section(data_summary, target_date_str, weekday_str, cutoff_time_
                 
         if group_blocks:
             data_section += f"\n## QQ群聊内容总结\n"
-            data_section += json.dumps(group_blocks, ensure_ascii=False, indent=2) + "\n"
+            
+            # 按群名称聚合
+            grouped_chats = {}
+            for block in group_blocks:
+                group_name = block.get('群名称', '未知群聊')
+                if group_name not in grouped_chats:
+                    grouped_chats[group_name] = {
+                        'bot_nickname': block.get('你在本群昵称', '未知'),
+                        'user_nickname': block.get('用户在本群昵称', '未知'),
+                        'topics': []
+                    }
+                grouped_chats[group_name]['topics'].append({
+                    'time': block.get('时间', '未知'),
+                    'summary': block.get('话题总结', '')
+                })
+                
+            for group_name, info in grouped_chats.items():
+                data_section += f"### 【{group_name}】\n"
+                data_section += f"- 你的群昵称: {info['bot_nickname']}\n"
+                data_section += f"- 用户的群昵称: {info['user_nickname']}\n\n"
+                for t in info['topics']:
+                    data_section += f"#### [{t['time']}]\n{t['summary']}\n\n"
             
     return data_section
 
