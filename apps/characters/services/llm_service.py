@@ -162,6 +162,58 @@ def _build_data_section(data_summary, target_date_str, weekday_str, cutoff_time_
         data_section += f"\n## 今日总步数: {data_summary['steps_summary'].get('total', 0)}\n"
         if data_summary.get('steps_by_hour'):
             data_section += f"\n## 步数（按小时累计）\n{json.dumps(data_summary['steps_by_hour'], ensure_ascii=False)}\n"
+    
+    if data_summary.get('qq_messages_summary'):
+        qq_summary = data_summary['qq_messages_summary']
+        data_section += f"\n## QQ消息统计\n"
+        data_section += f"- 总消息块数: {qq_summary.get('total_message_blocks', 0)}\n"
+        data_section += f"- 群消息块数: {qq_summary.get('group_message_blocks_count', 0)}\n"
+        data_section += f"- 私聊消息块数: {qq_summary.get('private_message_blocks_count', 0)}\n"
+        data_section += f"- 用户消息数: {qq_summary.get('user_messages_count', 0)}\n"
+        
+        if qq_summary.get('group_message_count_by_group'):
+            data_section += f"- 群消息分布: {json.dumps(qq_summary['group_message_count_by_group'], ensure_ascii=False)}\n"
+        
+        if qq_summary.get('message_active_time_ranges'):
+            message_ranges = ', '.join(qq_summary['message_active_time_ranges'])
+            data_section += f"- 消息活跃时间段: {message_ranges}\n"
+    
+    # 完整展示私聊消息中的用户发言，对LLM回复进行截断
+    if data_summary.get('qq_messages'):
+        qq_messages = data_summary['qq_messages']
+        
+        # 处理每个QQ消息记录
+        for msg_record in qq_messages:
+            # 检查是否是私聊消息
+            if hasattr(msg_record, 'message_type') and msg_record.message_type == 'private':
+                # 检查是否有message_data属性
+                if hasattr(msg_record, 'message_data'):
+                    message_blocks = msg_record.message_data
+                    if message_blocks:
+                        data_section += f"\n## 私聊消息详情\n"
+                        for block in message_blocks:
+                            time_str = block.get('时间', '未知时间')
+                            data_section += f"### {time_str}\n"
+                            
+                            # 处理用户发言
+                            if '用户' in block:
+                                user_message = block['用户']
+                                data_section += f"**用户**: {user_message}\n"
+                            
+                            # 处理机器人回复
+                            if '你的回复' in block:
+                                bot_reply = block['你的回复']
+                                # 对机器人回复进行截断
+                                if len(bot_reply) > 100:
+                                    # 保留完整的第一行，然后截断
+                                    lines = bot_reply.split('\n')
+                                    if lines:
+                                        truncated_reply = lines[0] + '...'
+                                        data_section += f"**你的回复**: {truncated_reply}\n"
+                                else:
+                                    data_section += f"**你的回复**: {bot_reply}\n"
+                            
+                            data_section += "\n"
             
     return data_section
 
@@ -213,6 +265,8 @@ def analyze_with_llm(aggregated_data, character_name, persona=None, ai_persona=N
             'computer_app_by_time_range': aggregated_data.get('computer_app_by_time_range', {}),
             'steps_summary': aggregated_data.get('steps_summary', {}),
             'steps_by_hour': aggregated_data.get('steps_by_hour', {}),
+            'qq_messages_summary': aggregated_data.get('qq_messages_summary', {}),
+            'qq_messages': aggregated_data.get('qq_messages', []),
             'last_record_time': aggregated_data.get('last_record_time'),
             'data_cutoff_time': aggregated_data.get('data_cutoff_time'),
             'yesterday_active_time_ranges': aggregated_data.get('yesterday_active_time_ranges', []),

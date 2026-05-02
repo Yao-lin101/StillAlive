@@ -482,6 +482,8 @@ def aggregate_status_data(character, field_mappings, target_date, end_datetime=N
     qq_summary = _compute_qq_messages_summary(qq_messages)
     if qq_summary:
         aggregated['qq_messages_summary'] = qq_summary
+        # 添加原始QQ消息数据，用于在日报中展示详情
+        aggregated['qq_messages'] = list(qq_messages)
         
     # 处理昨天的活跃时间
     yesterday_hours, yesterday_timestamps = _get_historical_active_hours(
