@@ -185,35 +185,34 @@ def _build_data_section(data_summary, target_date_str, weekday_str, cutoff_time_
         # 处理每个QQ消息记录
         for msg_record in qq_messages:
             # 检查是否是私聊消息
-            if hasattr(msg_record, 'message_type') and msg_record.message_type == 'private':
+            if isinstance(msg_record, dict) and msg_record.get('message_type') == 'private':
                 # 检查是否有message_data属性
-                if hasattr(msg_record, 'message_data'):
-                    message_blocks = msg_record.message_data
-                    if message_blocks:
-                        data_section += f"\n## 私聊消息详情\n"
-                        for block in message_blocks:
-                            time_str = block.get('时间', '未知时间')
-                            data_section += f"### {time_str}\n"
-                            
-                            # 处理用户发言
-                            if '用户' in block:
-                                user_message = block['用户']
-                                data_section += f"**用户**: {user_message}\n"
-                            
-                            # 处理机器人回复
-                            if '你的回复' in block:
-                                bot_reply = block['你的回复']
-                                # 对机器人回复进行截断
-                                if len(bot_reply) > 100:
-                                    # 保留完整的第一行，然后截断
-                                    lines = bot_reply.split('\n')
-                                    if lines:
-                                        truncated_reply = lines[0] + '...'
-                                        data_section += f"**你的回复**: {truncated_reply}\n"
-                                else:
-                                    data_section += f"**你的回复**: {bot_reply}\n"
-                            
-                            data_section += "\n"
+                message_blocks = msg_record.get('message_data', [])
+                if message_blocks:
+                    data_section += f"\n## 私聊消息详情\n"
+                    for block in message_blocks:
+                        time_str = block.get('时间', '未知时间')
+                        data_section += f"### {time_str}\n"
+                        
+                        # 处理用户发言
+                        if '用户' in block:
+                            user_message = block['用户']
+                            data_section += f"**用户**: {user_message}\n"
+                        
+                        # 处理机器人回复
+                        if '你的回复' in block:
+                            bot_reply = block['你的回复']
+                            # 对机器人回复进行截断
+                            if len(bot_reply) > 100:
+                                # 保留完整的第一行，然后截断
+                                lines = bot_reply.split('\n')
+                                if lines:
+                                    truncated_reply = lines[0] + '...'
+                                    data_section += f"**你的回复**: {truncated_reply}\n"
+                            else:
+                                data_section += f"**你的回复**: {bot_reply}\n"
+                        
+                        data_section += "\n"
             
     return data_section
 

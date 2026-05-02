@@ -373,6 +373,11 @@ def _compute_qq_messages_summary(qq_messages):
             message_blocks = msg_record.message_data
             total_private_message_blocks += len(message_blocks)
             
+            for block in message_blocks:
+                # 检查是否有用户消息
+                if '用户' in block:
+                    total_user_messages += 1
+                
             # 记录消息时间戳
             message_timestamps.append(msg_record.timestamp)
     
@@ -483,7 +488,15 @@ def aggregate_status_data(character, field_mappings, target_date, end_datetime=N
     if qq_summary:
         aggregated['qq_messages_summary'] = qq_summary
         # 添加原始QQ消息数据，用于在日报中展示详情
-        aggregated['qq_messages'] = list(qq_messages)
+        # 提取可序列化的数据，避免直接添加QQMessage对象
+        qq_messages_data = []
+        for msg in qq_messages:
+            qq_messages_data.append({
+                'message_type': msg.message_type,
+                'message_data': msg.message_data,
+                'timestamp': msg.timestamp.isoformat() if msg.timestamp else None
+            })
+        aggregated['qq_messages'] = qq_messages_data
         
     # 处理昨天的活跃时间
     yesterday_hours, yesterday_timestamps = _get_historical_active_hours(
