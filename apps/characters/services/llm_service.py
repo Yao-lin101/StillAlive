@@ -3,7 +3,7 @@ import logging
 from django.utils import timezone
 from django.conf import settings
 from .prompts import (
-    DEFAULT_SYSTEM_PROMPT, CUSTOM_SYSTEM_RULES_APPENDIX,
+    DEFAULT_SYSTEM_PROMPT, COMMON_ANALYSIS_RULES,
     INCREMENTAL_UPDATE_PROMPT, FINAL_SUMMARY_PROMPT,
     CUSTOM_FORMAT_INSTRUCTIONS, DEFAULT_FORMAT_INSTRUCTIONS,
     CUSTOM_QQ_FORMAT_SECTION, DEFAULT_QQ_FORMAT_SECTION
@@ -310,7 +310,7 @@ def analyze_with_llm(aggregated_data, character_name, persona=None, ai_persona=N
             if language_style:
                 language_style_section = f"\n## 语言风格\n{language_style}\n"
             
-            system_prompt = f"{ai_identity_desc}\n{language_style_section}\n{CUSTOM_SYSTEM_RULES_APPENDIX}"
+            system_prompt = f"{ai_identity_desc}\n{language_style_section}"
         else:
             system_prompt = DEFAULT_SYSTEM_PROMPT
 
@@ -362,7 +362,8 @@ def analyze_with_llm(aggregated_data, character_name, persona=None, ai_persona=N
                 prev_time_str=prev_time_str,
                 curr_time_str=curr_time_str,
                 clean_previous_report=clean_previous_report,
-                data_section=data_section
+                data_section=data_section,
+                common_rules=COMMON_ANALYSIS_RULES
             )
         elif is_day_ended and previous_report and previous_report.strip():
             # 最终总结阶段：整合所有带有中间过程标题的旧日报
@@ -373,7 +374,8 @@ def analyze_with_llm(aggregated_data, character_name, persona=None, ai_persona=N
             
             user_prompt = FINAL_SUMMARY_PROMPT.format(
                 clean_previous_report=clean_previous_report,
-                data_section=data_section
+                data_section=data_section,
+                common_rules=COMMON_ANALYSIS_RULES
             )
             if persona and persona.strip():
                 user_prompt += f"\n## 用户自述角色背景\n{persona.strip()}\n"
@@ -394,6 +396,9 @@ def analyze_with_llm(aggregated_data, character_name, persona=None, ai_persona=N
 
             data_section = _build_data_section(data_summary, target_date_str, weekday_str, cutoff_time_str, is_day_ended=is_day_ended)
             user_prompt += data_section
+            
+            # 将核心约束和分析规则附加在数据之后、输出格式要求之前
+            user_prompt += f"\n{COMMON_ANALYSIS_RULES}\n"
                 
         # 决定是否需要追加格式规范：
         # 1. 增量更新模式 (未完结且有旧日报) -> 不需要，让它继承旧日报的格式
