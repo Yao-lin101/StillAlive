@@ -384,24 +384,13 @@ def _compute_qq_messages_summary(qq_messages):
     # 计算总消息块数
     total_message_blocks = total_group_message_blocks + total_private_message_blocks
     
-    # 计算消息活跃时间区间
-    formatted_message_ranges = []
-    if message_timestamps:
-        sorted_timestamps = sorted(message_timestamps)
-        message_ranges = _compute_active_time_ranges(sorted_timestamps, sorted_timestamps[-1])
-        for start, end in message_ranges:
-            start_str = start.strftime('%H:%M')
-            end_str = end.strftime('%H:%M')
-            formatted_message_ranges.append(f"{start_str}-{end_str}")
-    
     # 构建摘要
     summary = {
         'total_message_blocks': total_message_blocks,
         'group_message_blocks_count': total_group_message_blocks,
         'private_message_blocks_count': total_private_message_blocks,
         'user_messages_count': total_user_messages,
-        'group_message_count_by_group': dict(group_message_count_by_group),
-        'message_active_time_ranges': formatted_message_ranges
+        'group_message_count_by_group': dict(group_message_count_by_group)
     }
     
     return summary

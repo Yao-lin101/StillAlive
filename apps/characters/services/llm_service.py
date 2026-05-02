@@ -173,10 +173,6 @@ def _build_data_section(data_summary, target_date_str, weekday_str, cutoff_time_
         
         if qq_summary.get('group_message_count_by_group'):
             data_section += f"- 群消息分布: {json.dumps(qq_summary['group_message_count_by_group'], ensure_ascii=False)}\n"
-        
-        if qq_summary.get('message_active_time_ranges'):
-            message_ranges = ', '.join(qq_summary['message_active_time_ranges'])
-            data_section += f"- 消息活跃时间段: {message_ranges}\n"
     
     # 完整展示私聊消息中的用户发言，对LLM回复进行截断
     if data_summary.get('qq_messages'):
