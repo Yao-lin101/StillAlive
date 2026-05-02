@@ -6,7 +6,7 @@ from rest_framework_simplejwt.views import TokenRefreshView
 from .views import users
 from .views.characters import (
     CharacterViewSet, CharacterDisplayView,
-    update_character_status, get_character_status,
+    update_character_status, get_character_status, sync_external_status,
     WillConfigViewSet, SurvivorsListView, CharacterMessageView,
     CharacterMessageDetailView, DailyReportConfigViewSet,
     get_daily_report_dates, get_daily_report_detail,
@@ -46,6 +46,7 @@ urlpatterns = [
     
     # 不需要认证的路由放在最前面
     path('status/update/', update_character_status, name='status-update'),
+    path('status/sync/', sync_external_status, name='status-sync'),
     path('survivors/', SurvivorsListView.as_view(), name='survivors-list'),
     path('d/<str:code>/status/', get_character_status, name='status-get'),
     path('characters/<str:code>/messages/', CharacterMessageView.as_view(), name='character-messages'),

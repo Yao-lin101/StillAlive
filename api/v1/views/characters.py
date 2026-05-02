@@ -887,3 +887,162 @@ def delete_daily_report(request, character_uid):
     report.delete()
     
     return Response({'status': 'success', 'message': '日报已删除'})
+
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def sync_external_status(request):
+    """
+    外部状态同步接口
+    
+    接收外部系统（如QQ机器人）发送的状态数据
+    
+    POST /api/v1/status/sync/
+    Headers: X-Character-Key: <secret_key>
+    Body:
+    {
+        "type": "qq_messages",
+        "data": {
+            "private_messages": [
+                {
+                    "时间": "12:00",
+                    "用户昵称": "消息内容",
+                    "机器人昵称": "回复消息"
+                }
+            ],
+            "group_messages": [
+                {
+                    "时间": "12:00",
+                    "群名称": "群名称",
+                    "群友昵称A": "消息内容",
+                    "用户昵称": "消息内容",
+                    "群友昵称B": "消息内容"
+                }
+            ]
+        }
+    }
+    """
+    from django.core.cache import cache
+    from apps.characters.models import DailyReport, QQMessage
+    from datetime import date, datetime
+    
+    RATE_LIMIT_UPLOADS = 250  # 每小时最大上传次数
+    RATE_LIMIT_WINDOW = 3600  # 1小时（秒）
+    
+    try:
+        # 从请求头获取秘钥
+        secret_key = request.headers.get('X-Character-Key')
+        if not secret_key:
+            return Response(
+                {'error': '缺少认证秘钥'},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+
+        # 验证请求数据
+        if not request.data:
+            return Response(
+                {'error': '缺少请求数据'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # 验证 secret_key
+        character = get_object_or_404(Character, secret_key=secret_key)
+        
+        # 速率限制检查
+        rate_limit_key = f"status_upload_rate:{character.uid}"
+        current_count = cache.get(rate_limit_key, 0)
+        
+        if current_count >= RATE_LIMIT_UPLOADS:
+            return Response(
+                {'error': f'已超过每小时 {RATE_LIMIT_UPLOADS} 次的上传限制'},
+                status=status.HTTP_429_TOO_MANY_REQUESTS
+            )
+        
+        # 处理QQ消息数据
+        if 'data' in request.data and request.data['type'] == 'qq_messages':
+            qq_data = request.data['data']
+            today = date.today()
+            
+            # 处理私聊消息
+            if 'private_messages' in qq_data and qq_data['private_messages']:
+                private_messages = qq_data['private_messages']
+                
+                # 查找今天的私聊消息记录
+                existing_private = QQMessage.objects.filter(
+                    character=character,
+                    date=today,
+                    message_type='private'
+                ).first()
+                
+                if existing_private:
+                    # 增量更新
+                    existing_data = existing_private.message_data
+                    existing_data.extend(private_messages)
+                    existing_private.message_data = existing_data
+                    existing_private.save()
+                else:
+                    # 创建新记录
+                    QQMessage.objects.create(
+                        character=character,
+                        date=today,
+                        message_type='private',
+                        message_data=private_messages
+                    )
+            
+            # 处理群消息
+            if 'group_messages' in qq_data and qq_data['group_messages']:
+                group_messages = qq_data['group_messages']
+                
+                # 查找今天的群消息记录
+                existing_group = QQMessage.objects.filter(
+                    character=character,
+                    date=today,
+                    message_type='group'
+                ).first()
+                
+                if existing_group:
+                    # 增量更新
+                    existing_data = existing_group.message_data
+                    existing_data.extend(group_messages)
+                    existing_group.message_data = existing_data
+                    existing_group.save()
+                else:
+                    # 创建新记录
+                    QQMessage.objects.create(
+                        character=character,
+                        date=today,
+                        message_type='group',
+                        message_data=group_messages
+                    )
+        
+        # 经验值系统 - 连续同步奖励
+        from datetime import date, timedelta
+        today = date.today()
+        
+        if character.last_sync_date != today:
+            # 今天还没有获得同步经验
+            if character.last_sync_date == today - timedelta(days=1):
+                # 连续同步，streak +1
+                character.sync_streak += 1
+            else:
+                # 断签，重置为1
+                character.sync_streak = 1
+            
+            # 获得经验 = 当前连续天数
+            character.experience += character.sync_streak
+            character.last_sync_date = today
+            character.save(update_fields=['experience', 'sync_streak', 'last_sync_date'])
+        
+        # 更新计数器
+        if current_count == 0:
+            cache.set(rate_limit_key, 1, RATE_LIMIT_WINDOW)
+        else:
+            cache.incr(rate_limit_key)
+
+        return Response({'status': 'success'})
+    except Exception as e:
+        logger.error(f"同步外部状态失败: {str(e)}")
+        return Response(
+            {'error': str(e)},
+            status=status.HTTP_400_BAD_REQUEST
+        )

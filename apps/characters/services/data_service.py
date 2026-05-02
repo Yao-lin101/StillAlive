@@ -330,6 +330,78 @@ def _compute_active_time_ranges(active_timestamps, last_record_time):
     return time_ranges
 
 
+def _compute_qq_messages_summary(qq_messages):
+    """
+    计算QQ消息的汇总统计
+    
+    Args:
+        qq_messages: QQ消息记录列表
+    
+    Returns:
+        dict: QQ消息统计摘要
+    """
+    if not qq_messages:
+        return None
+    
+    total_group_message_blocks = 0
+    total_private_message_blocks = 0
+    total_user_messages = 0
+    group_message_count_by_group = defaultdict(int)
+    message_timestamps = []
+    
+    for msg_record in qq_messages:
+        # 处理群消息
+        if msg_record.message_type == 'group':
+            message_blocks = msg_record.message_data
+            total_group_message_blocks += len(message_blocks)
+            
+            for block in message_blocks:
+                # 统计每个群的消息块数量
+                group_name = block.get('群名称', '未知群聊')
+                group_message_count_by_group[group_name] += 1
+                
+                # 检查是否有用户消息
+                for key, value in block.items():
+                    if key != '时间' and key != '群名称' and '用户' in key:
+                        total_user_messages += 1
+                
+                # 记录消息时间戳
+                message_timestamps.append(msg_record.timestamp)
+        
+        # 处理私聊消息
+        elif msg_record.message_type == 'private':
+            message_blocks = msg_record.message_data
+            total_private_message_blocks += len(message_blocks)
+            
+            # 记录消息时间戳
+            message_timestamps.append(msg_record.timestamp)
+    
+    # 计算总消息块数
+    total_message_blocks = total_group_message_blocks + total_private_message_blocks
+    
+    # 计算消息活跃时间区间
+    formatted_message_ranges = []
+    if message_timestamps:
+        sorted_timestamps = sorted(message_timestamps)
+        message_ranges = _compute_active_time_ranges(sorted_timestamps, sorted_timestamps[-1])
+        for start, end in message_ranges:
+            start_str = start.strftime('%H:%M')
+            end_str = end.strftime('%H:%M')
+            formatted_message_ranges.append(f"{start_str}-{end_str}")
+    
+    # 构建摘要
+    summary = {
+        'total_message_blocks': total_message_blocks,
+        'group_message_blocks_count': total_group_message_blocks,
+        'private_message_blocks_count': total_private_message_blocks,
+        'user_messages_count': total_user_messages,
+        'group_message_count_by_group': dict(group_message_count_by_group),
+        'message_active_time_ranges': formatted_message_ranges
+    }
+    
+    return summary
+
+
 def aggregate_status_data(character, field_mappings, target_date, end_datetime=None):
     """
     聚合指定日期的状态数据
@@ -400,6 +472,16 @@ def aggregate_status_data(character, field_mappings, target_date, end_datetime=N
     if steps_summary:
         aggregated['steps_summary'] = steps_summary
         aggregated['steps_by_hour'] = steps_by_hour
+    
+    # 处理QQ消息数据
+    from apps.characters.models import QQMessage
+    qq_messages = QQMessage.objects.filter(
+        character=character,
+        date=target_date
+    ).order_by('first_timestamp')
+    qq_summary = _compute_qq_messages_summary(qq_messages)
+    if qq_summary:
+        aggregated['qq_messages_summary'] = qq_summary
         
     # 处理昨天的活跃时间
     yesterday_hours, yesterday_timestamps = _get_historical_active_hours(

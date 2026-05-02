@@ -380,3 +380,46 @@ class PersonaHistory(models.Model):
         curr_content = (self.persona_content or '').strip()
         return prev_content != curr_content
 
+
+class QQMessage(models.Model):
+    """
+    QQ消息记录
+    用于存储QQ群消息和私聊消息数据
+    """
+
+    character = models.ForeignKey(
+        Character,
+        on_delete=models.CASCADE,
+        related_name='qq_messages',
+        help_text='关联的角色'
+    )
+    date = models.DateField(
+        help_text='消息日期'
+    )
+    timestamp = models.DateTimeField(
+        auto_now_add=True,
+        help_text='记录创建时间'
+    )
+    message_data = models.JSONField(
+        help_text='消息数据'
+    )
+    message_type = models.CharField(
+        max_length=20,
+        help_text='消息类型（group/private）'
+    )
+
+    class Meta:
+        ordering = ['-date', '-timestamp']
+        indexes = [
+            models.Index(fields=['character', 'date']),
+            models.Index(fields=['character', 'message_type']),
+        ]
+        verbose_name = 'QQ消息记录'
+        verbose_name_plural = 'QQ消息记录'
+
+    def __str__(self):
+        if self.message_type == 'group':
+            return f"[{self.date}] 群消息: {len(self.message_data)}个消息块"
+        else:
+            return f"[{self.date}] 私聊消息: {len(self.message_data)}个消息块"
+
