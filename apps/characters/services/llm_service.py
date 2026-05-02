@@ -5,7 +5,8 @@ from django.conf import settings
 from .prompts import (
     DEFAULT_SYSTEM_PROMPT, CUSTOM_SYSTEM_RULES_APPENDIX,
     INCREMENTAL_UPDATE_PROMPT, FINAL_SUMMARY_PROMPT,
-    CUSTOM_FORMAT_INSTRUCTIONS, DEFAULT_FORMAT_INSTRUCTIONS
+    CUSTOM_FORMAT_INSTRUCTIONS, DEFAULT_FORMAT_INSTRUCTIONS,
+    CUSTOM_QQ_FORMAT_SECTION, DEFAULT_QQ_FORMAT_SECTION
 )
 from .data_service import ACTIVE_INTERVAL_MAX_GAP
 
@@ -374,11 +375,22 @@ def analyze_with_llm(aggregated_data, character_name, persona=None, ai_persona=N
             data_section = _build_data_section(data_summary, target_date_str, weekday_str, cutoff_time_str, is_day_ended=is_day_ended)
             user_prompt += data_section
                 
-        if is_day_ended:
+        # 决定是否需要追加格式规范：
+        # 1. 增量更新模式 (未完结且有旧日报) -> 不需要，让它继承旧日报的格式
+        # 2. 从0生成 (无论是否完结) -> 需要
+        # 3. 最终结案 (完结且有旧日报) -> 需要 (重构成正式结构)
+        is_incremental_update = (not is_day_ended) and previous_report and previous_report.strip()
+        
+        if not is_incremental_update:
+            qq_summary = data_summary.get('qq_messages_summary', {})
+            has_qq = qq_summary.get('total_message_blocks', 0) > 0
+            
             if has_custom_ai_persona:
-                user_prompt += f"\n{CUSTOM_FORMAT_INSTRUCTIONS}"
+                qq_sec = CUSTOM_QQ_FORMAT_SECTION if has_qq else ""
+                user_prompt += f"\n{CUSTOM_FORMAT_INSTRUCTIONS.format(qq_format_section=qq_sec)}"
             else:
-                user_prompt += f"\n{DEFAULT_FORMAT_INSTRUCTIONS}"
+                qq_sec = DEFAULT_QQ_FORMAT_SECTION if has_qq else ""
+                user_prompt += f"\n{DEFAULT_FORMAT_INSTRUCTIONS.format(qq_format_section=qq_sec)}"
 
         print("\n" + "="*20 + " LLM Analysis Prompt Start " + "="*20)
         print(f"System Prompt:\n{system_prompt}")
