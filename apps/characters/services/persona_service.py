@@ -79,7 +79,6 @@ def update_system_persona(config, yesterday_report_text=None, trigger_type='sche
         
         recent_reports = DailyReport.objects.filter(
             character=config.character,
-            is_hidden=False,
             date__lt=today  # 排除今天，只使用昨天及以前的完整数据
         ).order_by('-date')[:7]
         
