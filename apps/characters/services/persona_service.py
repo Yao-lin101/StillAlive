@@ -6,7 +6,6 @@ from apps.characters.models import DailyReport, PersonaHistory
 from .llm_service import extract_text_from_anthropic_response
 from .prompts import (
     PERSONA_SYSTEM_PROMPT_DEFAULT,
-    PERSONA_SYSTEM_PROMPT_CUSTOM,
     PERSONA_TREND_GUIDANCE_FIRST,
     PERSONA_TREND_GUIDANCE_UPDATE,
     PERSONA_USER_PROMPT_DEFAULT,
@@ -120,7 +119,7 @@ def update_system_persona(config, yesterday_report_text=None, trigger_type='sche
             if language_style:
                 language_style_section = f"\n## 语言风格\n{language_style}\n"
             
-            system_prompt = f"{ai_identity_desc}\n{language_style_section}\n\n{PERSONA_SYSTEM_PROMPT_CUSTOM}"
+            system_prompt = f"{ai_identity_desc}\n{language_style_section}"
             user_prompt_template = PERSONA_USER_PROMPT_CUSTOM
         else:
             system_prompt = PERSONA_SYSTEM_PROMPT_DEFAULT
