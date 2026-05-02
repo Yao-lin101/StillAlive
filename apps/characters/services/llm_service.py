@@ -338,12 +338,22 @@ def analyze_with_llm(aggregated_data, character_name, persona=None, ai_persona=N
             except Exception:
                 pass
         
+        # 1. 统一生成数据概览 (data_section)
+        data_section = _build_data_section(data_summary, target_date_str, weekday_str, cutoff_time_str, is_day_ended=is_day_ended)
+        
+        # 2. 统一生成目标人物档案 (persona_section)
+        persona_section = ""
+        if persona and persona.strip():
+            persona_section += f"\n## 用户自述角色背景\n{persona.strip()}\n"
+        if system_inferred_persona and system_inferred_persona.strip():
+            persona_section += f"\n## 你观察得出的真实侧写档案\n{system_inferred_persona.strip()}\n"
+        elif persona and persona.strip():
+            persona_section += "\n请结合上述自述背景进行分析，使分析更贴合角色。\n"
+        
         if not is_day_ended and previous_report and previous_report.strip():
             # 清理上一份日报末尾由于代码自动拼接的数据截止时间尾巴，避免误导大模型或产生双重尾巴
             import re
             clean_previous_report = re.sub(r'\n+---\n+\*数据截止至：.*?\*\s*$', '', previous_report.strip())
-            
-            data_section = _build_data_section(data_summary, target_date_str, weekday_str, cutoff_time_str, is_day_ended=is_day_ended)
             
             # 格式化上一次的截止时间
             prev_time_str = "之前"
@@ -363,6 +373,7 @@ def analyze_with_llm(aggregated_data, character_name, persona=None, ai_persona=N
                 curr_time_str=curr_time_str,
                 clean_previous_report=clean_previous_report,
                 data_section=data_section,
+                persona_section=persona_section,
                 common_rules=COMMON_ANALYSIS_RULES
             )
         elif is_day_ended and previous_report and previous_report.strip():
@@ -370,32 +381,16 @@ def analyze_with_llm(aggregated_data, character_name, persona=None, ai_persona=N
             import re
             clean_previous_report = re.sub(r'\n+---\n+\*数据截止至：.*?\*\s*$', '', previous_report.strip())
             
-            data_section = _build_data_section(data_summary, target_date_str, weekday_str, cutoff_time_str, is_day_ended=is_day_ended)
-            
             user_prompt = FINAL_SUMMARY_PROMPT.format(
                 clean_previous_report=clean_previous_report,
                 data_section=data_section,
+                persona_section=persona_section,
                 common_rules=COMMON_ANALYSIS_RULES
             )
-            if persona and persona.strip():
-                user_prompt += f"\n## 用户自述角色背景\n{persona.strip()}\n"
-                
-            if system_inferred_persona and system_inferred_persona.strip():
-                user_prompt += f"\n## 你观察得出的真实侧写档案\n{system_inferred_persona.strip()}"
-                
         else:
             user_prompt = f"请对用户 {character_name} 在 {data_summary.get('date')} 的活动进行分析。\n"
-            
-            if persona and persona.strip():
-                user_prompt += f"\n## 用户自述角色背景\n{persona.strip()}\n"
-                
-            if system_inferred_persona and system_inferred_persona.strip():
-                user_prompt += f"\n## 你观察得出的真实侧写档案\n{system_inferred_persona.strip()}"
-            elif persona and persona.strip():
-                user_prompt += "\n请结合上述自述背景进行分析，使分析更贴合角色。\n"
-
-            data_section = _build_data_section(data_summary, target_date_str, weekday_str, cutoff_time_str, is_day_ended=is_day_ended)
             user_prompt += data_section
+            user_prompt += persona_section
             
             # 将核心约束和分析规则附加在数据之后、输出格式要求之前
             user_prompt += f"\n{COMMON_ANALYSIS_RULES}\n"

@@ -38,7 +38,7 @@ INCREMENTAL_UPDATE_PROMPT = """这是你之前为用户 {character_name} 生成�
 5. **绝对纯净**：绝对不要包含“好的”、“这是更新后的”等任何过渡或说明文字，直接输出 Markdown 内容本身。
 
 {data_section}
-
+{persona_section}
 {common_rules}
 
 请直接输出更新后的完整日报，保持原有风格。绝对不要输出任何开场白或解释性文字！
@@ -55,7 +55,7 @@ FINAL_SUMMARY_PROMPT = """这是今天白天在这个用户不断产生新活动
 这是当天的【最终全量数据快照】：
 
 {data_section}
-
+{persona_section}
 {common_rules}
 
 **最终全天总结整理要求**：
