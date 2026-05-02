@@ -478,7 +478,7 @@ def aggregate_status_data(character, field_mappings, target_date, end_datetime=N
     qq_messages = QQMessage.objects.filter(
         character=character,
         date=target_date
-    ).order_by('first_timestamp')
+    ).order_by('timestamp')
     qq_summary = _compute_qq_messages_summary(qq_messages)
     if qq_summary:
         aggregated['qq_messages_summary'] = qq_summary
