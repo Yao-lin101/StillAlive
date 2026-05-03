@@ -23,6 +23,8 @@ services:
       - DATABASE_URL=postgres://postgres:${DB_PASSWORD}@db:5432/${DB_NAME}
       - CELERY_BROKER_URL=redis://redis:6379/2
       - CELERY_RESULT_BACKEND=redis://redis:6379/2
+      - MILVUS_HOST=milvus-standalone
+      - MILVUS_PORT=19530
     depends_on:
       - db
       - redis
@@ -46,6 +48,8 @@ services:
       - REDIS_HOST=redis
       - CELERY_BROKER_URL=redis://redis:6379/2
       - CELERY_RESULT_BACKEND=redis://redis:6379/2
+      - MILVUS_HOST=milvus-standalone
+      - MILVUS_PORT=19530
     depends_on:
       - redis
       - db
@@ -70,9 +74,12 @@ services:
       - REDIS_HOST=redis
       - CELERY_BROKER_URL=redis://redis:6379/2
       - CELERY_RESULT_BACKEND=redis://redis:6379/2
+      - MILVUS_HOST=milvus-standalone
+      - MILVUS_PORT=19530
     depends_on:
       - redis
       - db
+      - milvus-standalone
     networks:
       - stillalive_network
 
