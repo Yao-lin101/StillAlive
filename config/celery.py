@@ -27,6 +27,10 @@ app.conf.beat_schedule = {
         'task': 'apps.characters.tasks.generate_daily_reports',
         'schedule': crontab(minute=5),  # 每小时第 5 分钟执行（给状态同步留时间）
     },
+    'generate-important-event-memories': {
+        'task': 'apps.characters.tasks.generate_important_event_memories',
+        'schedule': crontab(hour=0, minute=30),  # 每天 00:30 抽取昨天的重要事件长期记忆
+    },
 }
 
 @app.task(bind=True)

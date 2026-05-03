@@ -291,6 +291,49 @@ class DailyReport(models.Model):
         return f"{self.character.name} - {self.date}"
 
 
+class ImportantEvent(models.Model):
+    """
+    长期重要事件记忆
+
+    Postgres 是权威存储；向量库只保存 embedding 索引，可随时重建。
+    """
+    character = models.ForeignKey(Character, on_delete=models.CASCADE, related_name='important_events')
+    source_report = models.ForeignKey(DailyReport, on_delete=models.CASCADE, related_name='important_events')
+    date = models.DateField(help_text='事件所属日期')
+    event_key = models.CharField(max_length=128, help_text='同一日报内稳定去重 key')
+    title = models.CharField(max_length=120)
+    summary = models.TextField()
+    event_type = models.CharField(max_length=50, blank=True, default='')
+    time_range = models.CharField(max_length=50, blank=True, default='')
+    importance_score = models.PositiveSmallIntegerField(default=50, help_text='0-100，越高越重要')
+    confidence = models.FloatField(default=0.8, help_text='0-1，抽取可信度')
+    entities = models.JSONField(default=list, blank=True)
+    keywords = models.JSONField(default=list, blank=True)
+    evidence = models.JSONField(default=list, blank=True)
+    source_hash = models.CharField(max_length=64, blank=True, default='')
+    embedding_text = models.TextField(blank=True, default='')
+    is_active = models.BooleanField(default=True)
+    milvus_synced = models.BooleanField(default=False)
+    milvus_synced_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-date', '-importance_score']
+        indexes = [
+            models.Index(fields=['character', '-date']),
+            models.Index(fields=['character', 'is_active', '-importance_score']),
+            models.Index(fields=['source_report']),
+            models.Index(fields=['event_type']),
+        ]
+        unique_together = ['character', 'date', 'event_key']
+        verbose_name = '重要事件记忆'
+        verbose_name_plural = '重要事件记忆'
+
+    def __str__(self):
+        return f"{self.character.name} - {self.date} - {self.title}"
+
+
 class PersonaHistory(models.Model):
     """
     侧写历史记录
@@ -422,4 +465,3 @@ class QQMessage(models.Model):
             return f"[{self.date}] 群消息: {len(self.message_data)}个消息块"
         else:
             return f"[{self.date}] 私聊消息: {len(self.message_data)}个消息块"
-

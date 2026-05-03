@@ -13,6 +13,7 @@ inflection==0.5.1
 packaging==24.2
 pillow==11.1.0
 psycopg2-binary==2.9.10
+pymilvus==2.5.4
 PyJWT==2.10.1
 py-ip2region==3.0.2
 python-dotenv==1.0.1

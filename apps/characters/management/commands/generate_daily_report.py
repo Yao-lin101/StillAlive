@@ -4,6 +4,7 @@ from datetime import date, datetime, timedelta
 from apps.characters.models import Character, DailyReportConfig, DailyReport
 from apps.characters.services.data_service import aggregate_status_data
 from apps.characters.services.llm_service import analyze_with_llm
+from apps.characters.services.important_event_service import format_events_for_prompt, retrieve_important_events
 import logging
 
 logger = logging.getLogger(__name__)
@@ -221,6 +222,9 @@ class Command(BaseCommand):
                 )
             
             previous_cutoff_time = existing_report.data_cutoff_time if (existing_report and existing_report.data_cutoff_time) else None
+            memory_context = format_events_for_prompt(
+                retrieve_important_events(character, aggregated_data)
+            )
 
             analysis_result = analyze_with_llm(
                 aggregated_data, 
@@ -230,7 +234,8 @@ class Command(BaseCommand):
                 config.system_inferred_persona,
                 previous_report=previous_report,
                 is_incremental=use_incremental,
-                previous_cutoff_time=previous_cutoff_time
+                previous_cutoff_time=previous_cutoff_time,
+                long_term_memory_context=memory_context,
             )
 
             if analysis_result.get('error'):

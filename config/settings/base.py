@@ -208,3 +208,23 @@ CELERY_TASK_RETRY_POLICY = {
 ANTHROPIC_API_KEY = os.environ.get('ANTHROPIC_API_KEY', '')
 ANTHROPIC_MODEL = os.environ.get('ANTHROPIC_MODEL', 'claude-3-5-sonnet-20241022')
 ANTHROPIC_BASE_URL = os.environ.get('ANTHROPIC_BASE_URL', None)
+
+# Important Event Long-term Memory
+IMPORTANT_EVENT_MEMORY_ENABLED = os.environ.get('IMPORTANT_EVENT_MEMORY_ENABLED', 'True') == 'True'
+IMPORTANT_EVENT_VECTOR_ENABLED = os.environ.get('IMPORTANT_EVENT_VECTOR_ENABLED', 'True') == 'True'
+IMPORTANT_EVENT_INITIAL_RECALL = int(os.environ.get('IMPORTANT_EVENT_INITIAL_RECALL', '50'))
+IMPORTANT_EVENT_PINNED_LIMIT = int(os.environ.get('IMPORTANT_EVENT_PINNED_LIMIT', '3'))
+IMPORTANT_EVENT_INFRA_CHECK_ON_STARTUP = os.environ.get('IMPORTANT_EVENT_INFRA_CHECK_ON_STARTUP', 'False') == 'True'
+
+# Ollama embedding service
+OLLAMA_BASE_URL = os.environ.get('OLLAMA_BASE_URL', 'http://127.0.0.1:11434')
+OLLAMA_EMBED_MODEL = os.environ.get('OLLAMA_EMBED_MODEL', 'mxbai-embed-large')
+OLLAMA_EMBED_DIM = int(os.environ.get('OLLAMA_EMBED_DIM', '1024'))
+
+# Milvus vector index for important events
+MILVUS_URI = os.environ.get('MILVUS_URI', '')
+MILVUS_TOKEN = os.environ.get('MILVUS_TOKEN', '')
+MILVUS_DB_NAME = os.environ.get('MILVUS_DB_NAME', '')
+MILVUS_HOST = os.environ.get('MILVUS_HOST', '127.0.0.1')
+MILVUS_PORT = os.environ.get('MILVUS_PORT', '19530')
+MILVUS_IMPORTANT_EVENT_COLLECTION = os.environ.get('MILVUS_IMPORTANT_EVENT_COLLECTION', 'important_events')

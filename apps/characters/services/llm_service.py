@@ -235,7 +235,17 @@ def _build_data_section(data_summary, target_date_str, weekday_str, cutoff_time_
 
 
 
-def analyze_with_llm(aggregated_data, character_name, persona=None, ai_persona=None, system_inferred_persona=None, previous_report=None, is_incremental=False, previous_cutoff_time=None):
+def analyze_with_llm(
+    aggregated_data,
+    character_name,
+    persona=None,
+    ai_persona=None,
+    system_inferred_persona=None,
+    previous_report=None,
+    is_incremental=False,
+    previous_cutoff_time=None,
+    long_term_memory_context=None,
+):
     """
     使用 Anthropic API 分析数据
     
@@ -247,6 +257,7 @@ def analyze_with_llm(aggregated_data, character_name, persona=None, ai_persona=N
         system_inferred_persona: 系统暗中推断的真实人设档案（可选）
         previous_report: 上一份日报的 markdown 内容（用于增量更新）
         is_incremental: 是否为增量更新模式（保持风格一致性）
+        long_term_memory_context: 重要事件长期记忆上下文（可选）
     
     Returns:
         dict: AI 分析结果，包含 'markdown' 字段
@@ -349,6 +360,8 @@ def analyze_with_llm(aggregated_data, character_name, persona=None, ai_persona=N
             persona_section += f"\n## 你观察得出的真实侧写档案\n{system_inferred_persona.strip()}\n"
         elif persona and persona.strip():
             persona_section += "\n请结合上述自述背景进行分析，使分析更贴合角色。\n"
+        if long_term_memory_context and long_term_memory_context.strip():
+            persona_section += f"\n{long_term_memory_context.strip()}\n"
         
         if not is_day_ended and previous_report and previous_report.strip():
             # 清理上一份日报末尾由于代码自动拼接的数据截止时间尾巴，避免误导大模型或产生双重尾巴
@@ -493,5 +506,4 @@ def analyze_with_llm(aggregated_data, character_name, persona=None, ai_persona=N
             'markdown': f'## 分析失败\n\n分析过程中发生错误：{str(e)}',
             'error': str(e)
         }
-
 

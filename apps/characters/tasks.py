@@ -10,6 +10,11 @@ import logging
 from .services.data_service import aggregate_status_data
 from .services.llm_service import analyze_with_llm
 from .services.persona_service import update_system_persona
+from .services.important_event_service import (
+    extract_important_events_for_report,
+    format_events_for_prompt,
+    retrieve_important_events,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -251,6 +256,9 @@ def generate_daily_reports(self):
                     use_incremental = (target_date == today) and not is_final_summary
                     previous_report = existing_report.analysis_result.get('markdown', '') if existing_report.analysis_result else ''
                     previous_cutoff_time = existing_report.data_cutoff_time
+                    memory_context = format_events_for_prompt(
+                        retrieve_important_events(character, aggregated_data)
+                    )
                     
                     analysis_result = analyze_with_llm(
                         aggregated_data, 
@@ -260,7 +268,8 @@ def generate_daily_reports(self):
                         config.system_inferred_persona,
                         previous_report=previous_report,
                         is_incremental=use_incremental,
-                        previous_cutoff_time=previous_cutoff_time
+                        previous_cutoff_time=previous_cutoff_time,
+                        long_term_memory_context=memory_context,
                     )
                     
                     if 'error' in analysis_result:
@@ -281,8 +290,18 @@ def generate_daily_reports(self):
                 
                 else:
                     logger.info(f"No existing report for {character.name} on {target_date}, creating new report")
+                    memory_context = format_events_for_prompt(
+                        retrieve_important_events(character, aggregated_data)
+                    )
                     
-                    analysis_result = analyze_with_llm(aggregated_data, character.name, config.persona, config.ai_persona, config.system_inferred_persona)
+                    analysis_result = analyze_with_llm(
+                        aggregated_data,
+                        character.name,
+                        config.persona,
+                        config.ai_persona,
+                        config.system_inferred_persona,
+                        long_term_memory_context=memory_context,
+                    )
                     
                     if 'error' in analysis_result:
                         raise Exception(f"LLM Analysis failed: {analysis_result['error']}")
@@ -328,3 +347,74 @@ def generate_daily_reports(self):
         'total_processed': active_configs.count()
     } 
 
+
+@shared_task(
+    bind=True,
+    max_retries=2,
+    default_retry_delay=600,
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+)
+def generate_important_event_memories(self):
+    """
+    每天 00:30 从前一天最终日报中抽取长期重要事件。
+
+    日报生成仍以 raw_data 为事实来源；analysis_result.markdown 仅作为辅助线索。
+    """
+    local_now = timezone.localtime(timezone.now())
+    target_date = local_now.date() - timedelta(days=1)
+
+    active_configs = DailyReportConfig.objects.filter(
+        is_enabled=True
+    ).select_related('character')
+
+    success_count = 0
+    failed_count = 0
+    skipped_count = 0
+    created_count = 0
+    updated_count = 0
+
+    logger.info(f"Starting important event memory generation for {target_date}")
+
+    for config in active_configs:
+        try:
+            report = DailyReport.objects.filter(
+                character=config.character,
+                date=target_date,
+            ).select_related('character').first()
+
+            if not report:
+                logger.info(f"No daily report found for {config.character.name} on {target_date}, skip memory extraction")
+                skipped_count += 1
+                continue
+
+            result = extract_important_events_for_report(report)
+            if result.get('skipped'):
+                skipped_count += 1
+            else:
+                success_count += 1
+                created_count += result.get('created', 0)
+                updated_count += result.get('updated', 0)
+
+        except Exception as e:
+            failed_count += 1
+            logger.error(f"Failed to generate important event memory for {config.character.name} on {target_date}: {str(e)}")
+            import traceback
+            logger.error(traceback.format_exc())
+            continue
+
+    logger.info(
+        f"Important event memory generation completed. "
+        f"Success: {success_count}, Created: {created_count}, Updated: {updated_count}, "
+        f"Skipped: {skipped_count}, Failed: {failed_count}"
+    )
+
+    return {
+        'date': target_date.isoformat(),
+        'success_count': success_count,
+        'created_count': created_count,
+        'updated_count': updated_count,
+        'skipped_count': skipped_count,
+        'failed_count': failed_count,
+        'total_processed': active_configs.count(),
+    }
