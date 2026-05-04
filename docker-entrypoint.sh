@@ -40,10 +40,14 @@ echo "=== Collecting Static Files ==="
 python manage.py collectstatic --noinput
 echo "✓ Static files collected"
 
-# 应用数据库迁移
-echo "=== Applying Database Migrations ==="
-python manage.py migrate --noinput
-echo "✓ Database migrations applied"
+# 应用数据库迁移 (仅在 Web 容器中执行，避免并发冲突)
+if [[ "$*" == *"gunicorn"* ]] || [[ "$*" == *"manage.py runserver"* ]]; then
+    echo "=== Applying Database Migrations ==="
+    python manage.py migrate --noinput
+    echo "✓ Database migrations applied"
+else
+    echo "=== Skipping Migrations for non-web container ==="
+fi
 
 # 启动应用
 echo "=== Starting Application ==="
