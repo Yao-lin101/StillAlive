@@ -49,15 +49,15 @@ EVENT_EXTRACTION_USER_PROMPT = """请从下面这一天的数据中抽取 0-6 �
 [
   {{
     "event_key": "稳定短 key，英文小写/数字/下划线，建议含类型和时间",
-    "title": "不超过 30 字的事件标题",
-    "summary": "1-2 句客观摘要",
+    "title": "不超过 20 字的事件标题",
+    "summary": "1句客观摘要（不超过 40 字）",
     "event_type": "work_focus|sleep_pattern|social|health|travel|milestone|anomaly|entertainment|ai_relationship|system_milestone|other",
     "time_range": "HH:MM-HH:MM 或空字符串",
     "importance_score": 0-100,
     "confidence": 0-1,
-    "entities": ["应用/地点/人物/群名/项目名"],
-    "keywords": ["用于检索的关键词"],
-    "evidence": ["来自原始数据的短证据，最多 3 条"]
+    "entities": ["应用/地点/人物/群名/项目名，最多 3 个"],
+    "keywords": ["用于检索的短词，最多 4 个"],
+    "evidence": ["数据片段，最多 2 条，单条 20 字内"]
   }}
 ]
 
@@ -82,17 +82,17 @@ QUERY_REWRITE_SYSTEM_SUFFIX = """
 QUERY_REWRITE_USER_PROMPT = """请基于下面这一天的完整数据，生成用于召回历史重要事件的检索关键词 JSON。
 
 目标：
-1. 把当天最值得和历史记忆对照的线索提炼出来。
-2. 特别关注作息异常、持续专注、社交关系、健康/运动、项目/地点/人物、AI 关系、角色设定、系统上线、互动默契、特殊纪念日。
-3. 输出要短，高信号，适合 embedding 检索；不要复制大段原始 JSON 或聊天内容。
-4. 不要写日报，不要评价用户。
+1. 提炼当天最核心、最具辨识度的线索，用于和历史记忆对比。
+2. 严控长度：query 字段必须极其精炼，只保留高信号词汇，严禁出现长句。
+3. 关注：异常模式、社交变化、重要人物/地点、AI 关系、系统里程碑。
+4. 不要写日报，不要评价用户，不要输出任何非 JSON 内容。
 
 只输出 JSON 对象：
 {{
-  "query": "一行空格分隔的中性检索关键词，不超过 180 字",
-  "focus": ["召回重点，最多 6 个"],
-  "entities": ["人物/应用/群名/项目名/地点，最多 10 个"],
-  "time_patterns": ["时间模式，最多 4 个"],
+  "query": "一行空格分隔的极简关键词，严禁超过 60 字",
+  "focus": ["核心重点，最多 3 个"],
+  "entities": ["关键实体，最多 4 个"],
+  "time_patterns": ["时间模式，最多 2 个"],
   "event_types": ["work_focus|sleep_pattern|social|health|travel|milestone|anomaly|entertainment|ai_relationship|system_milestone|other"]
 }}
 
@@ -625,12 +625,12 @@ def _format_query_rewrite_result(value):
         lines.append(f"检索关键词: {query[:220]}")
 
     for key, label, limit in [
-        ('focus', '召回重点', 6),
-        ('entities', '实体', 10),
-        ('time_patterns', '时间模式', 4),
-        ('event_types', '事件类型', 8),
+        ('focus', '重点', 3),
+        ('entities', '实体', 5),
+        ('time_patterns', '周期', 2),
+        ('event_types', '类型', 5),
     ]:
-        items = _as_short_list(value.get(key), max_items=limit, max_len=60)
+        items = _as_short_list(value.get(key), max_items=limit, max_len=40)
         if items:
             lines.append(f"{label}: {'、'.join(items)}")
 
