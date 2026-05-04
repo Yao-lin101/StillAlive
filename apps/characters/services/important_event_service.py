@@ -555,12 +555,20 @@ def _summarize_qq_for_retrieval(aggregated_data, max_snippets=6):
                 continue
 
             group_name = block.get('群名称')
-            topic = block.get('话题总结')
+            group_topic = block.get('话题总结')
+            private_topic = block.get('话题')
+            private_summary = block.get('总结')
             user_message = block.get('用户')
             bot_reply = block.get('你的回复')
 
-            if group_name and topic:
-                snippets.append(f"{group_name}: {topic}")
+            if group_name and group_topic:
+                snippets.append(f"{group_name}: {group_topic}")
+            elif private_topic and private_summary:
+                snippets.append(f"私聊话题: {private_topic} - {private_summary}")
+            elif private_topic:
+                snippets.append(f"私聊话题: {private_topic}")
+            elif private_summary:
+                snippets.append(f"私聊总结: {private_summary}")
             elif user_message:
                 snippets.append(f"私聊用户: {user_message}")
             elif bot_reply:

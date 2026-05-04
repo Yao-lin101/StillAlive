@@ -375,7 +375,7 @@ def _compute_qq_messages_summary(qq_messages):
             
             for block in message_blocks:
                 # 检查是否有用户消息
-                if '用户' in block:
+                if '用户' in block or '话题' in block:
                     total_user_messages += 1
                 
             # 记录消息时间戳

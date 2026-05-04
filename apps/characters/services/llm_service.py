@@ -186,6 +186,12 @@ def _build_data_section(data_summary, target_date_str, weekday_str, cutoff_time_
                 time_str = block.get('时间', '未知时间')
                 data_section += f"[{time_str}]\n"
                 
+                # 处理话题和总结
+                if '话题' in block:
+                    data_section += f"话题: {block['话题']}\n"
+                if '总结' in block:
+                    data_section += f"总结: {block['总结']}\n"
+                
                 # 处理用户发言
                 if '用户' in block:
                     user_message = block['用户']
