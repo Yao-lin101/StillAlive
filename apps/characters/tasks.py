@@ -256,9 +256,11 @@ def generate_daily_reports(self):
                     use_incremental = (target_date == today) and not is_final_summary
                     previous_report = existing_report.analysis_result.get('markdown', '') if existing_report.analysis_result else ''
                     previous_cutoff_time = existing_report.data_cutoff_time
-                    memory_context = format_events_for_prompt(
-                        retrieve_important_events(character, aggregated_data)
-                    )
+                    memory_context = ''
+                    if is_final_summary:
+                        memory_context = format_events_for_prompt(
+                            retrieve_important_events(character, aggregated_data)
+                        )
                     
                     analysis_result = analyze_with_llm(
                         aggregated_data, 
@@ -290,9 +292,11 @@ def generate_daily_reports(self):
                 
                 else:
                     logger.info(f"No existing report for {character.name} on {target_date}, creating new report")
-                    memory_context = format_events_for_prompt(
-                        retrieve_important_events(character, aggregated_data)
-                    )
+                    memory_context = ''
+                    if is_final_summary:
+                        memory_context = format_events_for_prompt(
+                            retrieve_important_events(character, aggregated_data)
+                        )
                     
                     analysis_result = analyze_with_llm(
                         aggregated_data,
