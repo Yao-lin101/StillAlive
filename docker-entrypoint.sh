@@ -24,21 +24,24 @@ while ! nc -z $REDIS_HOST 6379; do
 done
 echo "✓ Redis is up and running"
 
-# 确保日志目录存在并设置权限
-echo "=== Setting up Directories ==="
-mkdir -p /app/logs /app/media /app/staticfiles /app/celerybeat-data
-chmod -R 755 /app/logs /app/media /app/staticfiles
-# 确保 celerybeat-data 目录有正确的权限
-if [ -d "/app/celerybeat-data" ]; then
-    chown -R celery:celery /app/celerybeat-data
-    chmod -R 775 /app/celerybeat-data
+# 只有 Web 容器才负责初始化文件系统和静态资源
+if [[ "$*" == *"gunicorn"* ]] || [[ "$*" == *"manage.py runserver"* ]]; then
+    echo "=== Setting up Directories & Static Files ==="
+    mkdir -p /app/logs /app/media /app/staticfiles
+    # 允许 celery 组读写日志和静态目录（如果需要的话）
+    chmod -R 775 /app/logs /app/media /app/staticfiles
+    
+    echo "=== Collecting Static Files ==="
+    python manage.py collectstatic --noinput
+    echo "✓ Setup completed"
+else
+    echo "=== Skipping Filesystem setup for non-web container ==="
 fi
-echo "✓ Directories setup completed"
 
-# 收集静态文件
-echo "=== Collecting Static Files ==="
-python manage.py collectstatic --noinput
-echo "✓ Static files collected"
+# 独立处理 celerybeat 数据目录，确保其始终存在
+if [ ! -d "/app/celerybeat-data" ]; then
+    mkdir -p /app/celerybeat-data
+fi
 
 # 应用数据库迁移 (仅在 Web 容器中执行，避免并发冲突)
 if [[ "$*" == *"gunicorn"* ]] || [[ "$*" == *"manage.py runserver"* ]]; then
