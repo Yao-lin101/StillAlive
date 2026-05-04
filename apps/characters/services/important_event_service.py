@@ -28,6 +28,13 @@ EVENT_EXTRACTION_SYSTEM_PROMPT = """你是一个严谨的生活日志事件抽�
 不要夸大，不要补写不存在的事实，不要把普通的一天硬说成重大事件。"""
 
 
+EVENT_EXTRACTION_SYSTEM_SUFFIX = """
+
+你现在执行的是“长期重要事件记忆抽取”任务。
+请用你的身份和价值判断来决定哪些事件值得未来日报记住，但最终输出必须是中性的结构化 JSON。
+不要输出寒暄、解释、Markdown 或角色台词；不要为了符合人设而捏造事实。"""
+
+
 EVENT_EXTRACTION_USER_PROMPT = """请从下面这一天的数据中抽取 0-6 条“值得长期记忆”的重要事件。
 
 重要事件标准：
@@ -35,6 +42,7 @@ EVENT_EXTRACTION_USER_PROMPT = """请从下面这一天的数据中抽取 0-6 �
 2. 必须能从客观数据中找到证据。
 3. 普通应用使用、普通步数、没有明显模式的一天，不要强行抽取。
 4. 敏感聊天内容要概括，不要复制大段原文。
+5. 如果日报中出现对未来日报很有用的 AI 关系、角色设定、系统上线、互动默契、特殊纪念日等信息，也可以抽取为长期事件；这类事件的 evidence 必须说明来自日报辅助摘要或聊天记录。
 
 输出要求：
 只输出 JSON 数组，不要 Markdown，不要解释。数组元素字段如下：
@@ -43,7 +51,7 @@ EVENT_EXTRACTION_USER_PROMPT = """请从下面这一天的数据中抽取 0-6 �
     "event_key": "稳定短 key，英文小写/数字/下划线，建议含类型和时间",
     "title": "不超过 30 字的事件标题",
     "summary": "1-2 句客观摘要",
-    "event_type": "work_focus|sleep_pattern|social|health|travel|milestone|anomaly|entertainment|other",
+    "event_type": "work_focus|sleep_pattern|social|health|travel|milestone|anomaly|entertainment|ai_relationship|system_milestone|other",
     "time_range": "HH:MM-HH:MM 或空字符串",
     "importance_score": 0-100,
     "confidence": 0-1,
@@ -165,6 +173,33 @@ def _get_anthropic_client():
     return anthropic.Anthropic(**client_kwargs)
 
 
+def _build_event_extraction_system_prompt(report):
+    try:
+        config = report.character.daily_report_config
+    except Exception:
+        config = None
+
+    ai_persona = config.ai_persona if config else {}
+    ai_persona = ai_persona or {}
+
+    core_identity = (ai_persona.get('core_identity') or '').strip()
+    personality_traits = (ai_persona.get('personality_traits') or '').strip()
+    language_style = (ai_persona.get('language_style') or '').strip()
+
+    if not (core_identity or personality_traits or language_style):
+        return EVENT_EXTRACTION_SYSTEM_PROMPT
+
+    parts = []
+    if core_identity:
+        parts.append(core_identity)
+    if personality_traits:
+        parts.append(personality_traits)
+    if language_style:
+        parts.append(f"## 语言风格\n{language_style}")
+
+    return "\n".join(parts) + EVENT_EXTRACTION_SYSTEM_SUFFIX
+
+
 def extract_important_events_for_report(report, force=False):
     """
     从一份已完成日报中抽取长期重要事件，并同步向量索引。
@@ -200,7 +235,7 @@ def extract_important_events_for_report(report, force=False):
 
     response = client.messages.create(
         model=model,
-        system=EVENT_EXTRACTION_SYSTEM_PROMPT,
+        system=_build_event_extraction_system_prompt(report),
         temperature=0.2,
         max_tokens=4096,
         messages=[{'role': 'user', 'content': prompt}],
