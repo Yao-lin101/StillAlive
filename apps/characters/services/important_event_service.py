@@ -72,6 +72,39 @@ EVENT_EXTRACTION_USER_PROMPT = """请从下面这一天的数据中抽取 0-6 �
 """
 
 
+QUERY_REWRITE_SYSTEM_SUFFIX = """
+
+你现在执行的是“长期记忆召回 query 改写”任务。
+请用你的身份和价值判断来判断哪些线索值得召回历史记忆，但输出必须是中性的 JSON。
+不要输出角色台词、寒暄、解释或 Markdown。"""
+
+
+QUERY_REWRITE_USER_PROMPT = """请基于下面这一天的完整数据，生成用于召回历史重要事件的检索关键词 JSON。
+
+目标：
+1. 把当天最值得和历史记忆对照的线索提炼出来。
+2. 特别关注作息异常、持续专注、社交关系、健康/运动、项目/地点/人物、AI 关系、角色设定、系统上线、互动默契、特殊纪念日。
+3. 输出要短，高信号，适合 embedding 检索；不要复制大段原始 JSON 或聊天内容。
+4. 不要写日报，不要评价用户。
+
+只输出 JSON 对象：
+{{
+  "query": "一行空格分隔的中性检索关键词，不超过 180 字",
+  "focus": ["召回重点，最多 6 个"],
+  "entities": ["人物/应用/群名/项目名/地点，最多 10 个"],
+  "time_patterns": ["时间模式，最多 4 个"],
+  "event_types": ["work_focus|sleep_pattern|social|health|travel|milestone|anomaly|entertainment|ai_relationship|system_milestone|other"]
+}}
+
+日期：{date}
+客观活动聚合数据 JSON：
+{raw_data}
+
+辅助日报摘要：
+{daily_markdown}
+"""
+
+
 def _json_dumps(value):
     return json.dumps(value, ensure_ascii=False, sort_keys=True, default=str)
 
@@ -200,6 +233,33 @@ def _build_event_extraction_system_prompt(report):
     return "\n".join(parts) + EVENT_EXTRACTION_SYSTEM_SUFFIX
 
 
+def _build_query_rewrite_system_prompt(character):
+    try:
+        config = character.daily_report_config
+    except Exception:
+        config = None
+
+    ai_persona = config.ai_persona if config else {}
+    ai_persona = ai_persona or {}
+
+    core_identity = (ai_persona.get('core_identity') or '').strip()
+    personality_traits = (ai_persona.get('personality_traits') or '').strip()
+    language_style = (ai_persona.get('language_style') or '').strip()
+
+    if not (core_identity or personality_traits or language_style):
+        return "你是一个严谨的长期记忆检索 query 改写器，负责把当天活动数据压缩成高信号、中性的检索关键词 JSON。"
+
+    parts = []
+    if core_identity:
+        parts.append(core_identity)
+    if personality_traits:
+        parts.append(personality_traits)
+    if language_style:
+        parts.append(f"## 语言风格\n{language_style}")
+
+    return "\n".join(parts) + QUERY_REWRITE_SYSTEM_SUFFIX
+
+
 def extract_important_events_for_report(report, force=False):
     """
     从一份已完成日报中抽取长期重要事件，并同步向量索引。
@@ -310,9 +370,21 @@ def extract_important_events_for_report(report, force=False):
     return {'created': created, 'updated': updated, 'skipped': False}
 
 
+def _truncate_embedding_input(text):
+    text = str(text or '').strip()
+    max_chars = int(getattr(settings, 'OLLAMA_EMBED_MAX_CHARS', 900))
+    if max_chars <= 0 or len(text) <= max_chars:
+        return text
+
+    truncated = text[:max_chars]
+    logger.info("Ollama embedding input truncated from %s to %s chars", len(text), len(truncated))
+    return truncated
+
+
 def _ollama_embed(text):
     base_url = getattr(settings, 'OLLAMA_BASE_URL', 'http://127.0.0.1:11434').rstrip('/')
     model = getattr(settings, 'OLLAMA_EMBED_MODEL', 'mxbai-embed-large')
+    text = _truncate_embedding_input(text)
     payload = json.dumps({'model': model, 'input': text}, ensure_ascii=False).encode('utf-8')
     request = urllib.request.Request(
         f'{base_url}/api/embed',
@@ -324,6 +396,13 @@ def _ollama_embed(text):
     try:
         with urllib.request.urlopen(request, timeout=20) as response:
             data = json.loads(response.read().decode('utf-8'))
+    except urllib.error.HTTPError as exc:
+        try:
+            error_body = exc.read().decode('utf-8')
+        except Exception:
+            error_body = ''
+        logger.warning("Ollama embedding request failed: HTTP %s %s", exc.code, error_body[:500])
+        return None
     except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
         logger.warning("Ollama embedding request failed: %s", exc)
         return None
@@ -441,26 +520,159 @@ def delete_event_from_milvus(event_id):
         return False
 
 
+def _format_top_items(value, limit=8):
+    if not isinstance(value, dict):
+        return ''
+
+    items = []
+    for key, count in list(value.items())[:limit]:
+        if key:
+            items.append(f"{key}({count})")
+    return "、".join(items)
+
+
+def _summarize_qq_for_retrieval(aggregated_data, max_snippets=6):
+    qq_summary = aggregated_data.get('qq_messages_summary') or {}
+    qq_messages = aggregated_data.get('qq_messages') or []
+    parts = []
+
+    if qq_summary:
+        group_counts = qq_summary.get('group_message_count_by_group') or {}
+        if group_counts:
+            parts.append(f"群聊: {'、'.join(list(group_counts.keys())[:5])}")
+        private_count = qq_summary.get('private_message_blocks_count')
+        group_count = qq_summary.get('group_message_blocks_count')
+        if private_count or group_count:
+            parts.append(f"聊天块: 私聊{private_count or 0}, 群聊{group_count or 0}")
+
+    snippets = []
+    for msg_record in qq_messages:
+        if not isinstance(msg_record, dict):
+            continue
+
+        for block in msg_record.get('message_data') or []:
+            if not isinstance(block, dict):
+                continue
+
+            group_name = block.get('群名称')
+            topic = block.get('话题总结')
+            user_message = block.get('用户')
+            bot_reply = block.get('你的回复')
+
+            if group_name and topic:
+                snippets.append(f"{group_name}: {topic}")
+            elif user_message:
+                snippets.append(f"私聊用户: {user_message}")
+            elif bot_reply:
+                snippets.append(f"私聊回复: {bot_reply}")
+
+            if len(snippets) >= max_snippets:
+                break
+        if len(snippets) >= max_snippets:
+            break
+
+    if snippets:
+        parts.append("话题: " + " | ".join(str(x).replace("\n", " ")[:120] for x in snippets))
+
+    return "；".join(parts)
+
+
+def _limit_text(text, max_chars):
+    text = str(text or '').strip()
+    if max_chars <= 0 or len(text) <= max_chars:
+        return text
+    return text[:max_chars]
+
+
 def _build_retrieval_query(aggregated_data):
+    """
+    构造用于历史重要事件召回的短查询。
+
+    这里故意不塞完整 JSON：embedding 需要高信号关键词，而不是原始日报 prompt。
+    """
     parts = [
         f"日期: {aggregated_data.get('date', '')}",
         f"活动时间段: {'、'.join(aggregated_data.get('active_time_ranges') or [])}",
     ]
-    for key, label in [
-        ('phone_app_summary', '手机应用'),
-        ('computer_app_summary', '电脑应用'),
-        ('steps_summary', '步数'),
-        ('qq_messages_summary', '聊天摘要'),
+
+    phone_apps = _format_top_items(aggregated_data.get('phone_app_summary'), limit=10)
+    if phone_apps:
+        parts.append(f"手机应用Top: {phone_apps}")
+
+    computer_apps = _format_top_items(aggregated_data.get('computer_app_summary'), limit=10)
+    if computer_apps:
+        parts.append(f"电脑应用Top: {computer_apps}")
+
+    steps_summary = aggregated_data.get('steps_summary') or {}
+    if steps_summary:
+        parts.append(f"总步数: {steps_summary.get('total', 0)}")
+
+    qq_text = _summarize_qq_for_retrieval(aggregated_data)
+    if qq_text:
+        parts.append(f"聊天线索: {qq_text}")
+
+    max_chars = int(getattr(settings, 'OLLAMA_EMBED_MAX_CHARS', 900))
+    return _limit_text("\n".join(parts), max_chars)
+
+
+def _format_query_rewrite_result(value):
+    if not isinstance(value, dict):
+        return ''
+
+    lines = []
+    query = str(value.get('query') or '').strip()
+    if query:
+        lines.append(f"检索关键词: {query[:220]}")
+
+    for key, label, limit in [
+        ('focus', '召回重点', 6),
+        ('entities', '实体', 10),
+        ('time_patterns', '时间模式', 4),
+        ('event_types', '事件类型', 8),
     ]:
-        value = aggregated_data.get(key)
-        if value:
-            parts.append(f"{label}: {_json_dumps(value)[:1200]}")
+        items = _as_short_list(value.get(key), max_items=limit, max_len=60)
+        if items:
+            lines.append(f"{label}: {'、'.join(items)}")
 
-    qq_messages = aggregated_data.get('qq_messages') or []
-    if qq_messages:
-        parts.append(f"聊天详情: {_json_dumps(qq_messages)[:1800]}")
+    max_chars = int(getattr(settings, 'OLLAMA_EMBED_MAX_CHARS', 900))
+    return _limit_text("\n".join(lines), max_chars)
 
-    return "\n".join(parts)
+
+def _rewrite_retrieval_query_with_llm(character, aggregated_data):
+    if not getattr(settings, 'IMPORTANT_EVENT_QUERY_REWRITE_ENABLED', True):
+        return ''
+
+    client = _get_anthropic_client()
+    if client is None:
+        return ''
+
+    model = getattr(settings, 'ANTHROPIC_MODEL', 'claude-3-5-sonnet-20241022')
+    max_tokens = int(getattr(settings, 'IMPORTANT_EVENT_QUERY_REWRITE_MAX_TOKENS', 512))
+
+    # Query rewrite can use the full data because it is a short, final-summary-only LLM call.
+    prompt = QUERY_REWRITE_USER_PROMPT.format(
+        date=aggregated_data.get('date', ''),
+        raw_data=_json_dumps(aggregated_data),
+        daily_markdown='（无，当前任务发生在最终日报生成前）',
+    )
+
+    try:
+        response = client.messages.create(
+            model=model,
+            system=_build_query_rewrite_system_prompt(character),
+            temperature=0.2,
+            max_tokens=max_tokens,
+            messages=[{'role': 'user', 'content': prompt}],
+        )
+        result_text = extract_text_from_anthropic_response(response)
+        value = json.loads(re.sub(r'^```(?:json)?\s*|\s*```$', '', (result_text or '').strip()))
+        query_text = _format_query_rewrite_result(value)
+        if query_text:
+            logger.info("Important event retrieval query rewritten by LLM for character %s", character.uid)
+        return query_text
+    except Exception as exc:
+        logger.warning("Important event retrieval query rewrite failed, fallback to rule query: %s", exc)
+        return ''
 
 
 def _search_milvus_event_ids(character, query_text, recall):
@@ -525,7 +737,9 @@ def retrieve_important_events(character, aggregated_data, limit=DEFAULT_EVENT_LI
         except Exception:
             target_date = None
 
-    query_text = _build_retrieval_query(aggregated_data)
+    query_text = _rewrite_retrieval_query_with_llm(character, aggregated_data)
+    if not query_text:
+        query_text = _build_retrieval_query(aggregated_data)
     recall = int(getattr(settings, 'IMPORTANT_EVENT_INITIAL_RECALL', DEFAULT_INITIAL_RECALL))
     vector_scores = _search_milvus_event_ids(character, query_text, recall)
 
