@@ -79,7 +79,6 @@ services:
     depends_on:
       - redis
       - db
-      - milvus-standalone
     networks:
       - stillalive_network
 
