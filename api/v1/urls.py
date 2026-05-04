@@ -11,7 +11,8 @@ from .views.characters import (
     CharacterMessageDetailView, DailyReportConfigViewSet,
     get_daily_report_dates, get_daily_report_detail,
     get_daily_report_config_public,
-    toggle_daily_report_hidden, delete_daily_report
+    toggle_daily_report_hidden, delete_daily_report,
+    bot_query_state
 )
 
 
@@ -45,6 +46,7 @@ urlpatterns = [
     path('', api_root, name='api-root'),
     
     # 不需要认证的路由放在最前面
+    path('bot/status/', bot_query_state, name='bot-status'),
     path('status/update/', update_character_status, name='status-update'),
     path('status/sync/', sync_external_status, name='status-sync'),
     path('survivors/', SurvivorsListView.as_view(), name='survivors-list'),
