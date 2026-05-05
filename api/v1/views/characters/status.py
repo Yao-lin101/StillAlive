@@ -401,7 +401,7 @@ def bot_query_state(request):
                 events = retrieve_important_events(character, aggregated_data)
                 
             if events:
-                memory_text = format_events_for_prompt(events)
+                memory_text = format_events_for_prompt(events, for_bot=True)
                 # 确保段落之间有空行
                 if prompt_content:
                     prompt_content += f"\n\n{memory_text}\n"

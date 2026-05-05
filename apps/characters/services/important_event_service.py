@@ -792,11 +792,12 @@ def retrieve_important_events(character, aggregated_data, limit=DEFAULT_EVENT_LI
     return [event for _, event in scored[:limit]]
 
 
-def format_events_for_prompt(events):
+def format_events_for_prompt(events, for_bot=False):
     if not events:
         return ''
 
-    lines = ["\n## 可能相关的长期重要记忆"]
+    title = "\n## 可用的长期重要记忆" if for_bot else "\n## 可能相关的长期重要记忆"
+    lines = [title]
     for index, event in enumerate(events, start=1):
         detail = f"{index}. {event.date} {event.title}：{event.summary}"
         meta = []
@@ -809,7 +810,8 @@ def format_events_for_prompt(events):
             meta.append(f"证据 {'；'.join(event.evidence[:2])}")
         lines.append(f"{detail}（{'，'.join(meta)}）")
 
-    lines.append("\n请把这些记忆当作背景线索自然使用；如果今天数据不相关，不要强行提及。")
+    footer = "\n可以在这些内容中寻找话题。" if for_bot else "\n请把这些记忆当作背景线索自然使用；如果今天数据不相关，不要强行提及。"
+    lines.append(footer)
     return "\n".join(lines)
 
 
