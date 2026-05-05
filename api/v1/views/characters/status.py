@@ -376,7 +376,8 @@ def bot_query_state(request):
                     target_date_str, 
                     weekday_str, 
                     cutoff_time_str, 
-                    is_day_ended=False
+                    is_day_ended=False,
+                    include_system_prompt=False
                 )
                 
                 system_inferred_persona = config.system_inferred_persona

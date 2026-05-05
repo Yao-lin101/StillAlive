@@ -102,7 +102,7 @@ def _clean_markdown_wrapper(result_text):
 
 
 
-def _build_data_section(data_summary, target_date_str, weekday_str, cutoff_time_str, is_day_ended=False):
+def _build_data_section(data_summary, target_date_str, weekday_str, cutoff_time_str, is_day_ended=False, include_system_prompt=True):
     """
     统一格式化数据概览和应用使用情况，返回用于注入 prompt 的文本
     """
@@ -138,7 +138,7 @@ def _build_data_section(data_summary, target_date_str, weekday_str, cutoff_time_
     data_section += f"""
 - 数据截止时间: {cutoff_time_str}
 """
-    if not is_day_ended:
+    if not is_day_ended and include_system_prompt:
         data_section += "\n**【系统强烈提示】当前这一天还没结束！数据只同步到了上述截止时间。你的分析必须处于“正在直播”的视角，评价时要用“截至目前”，绝对不能作结案陈词（比如“今天你一共就走了xx步”、“到这就收工了”），而是要推测他接下去会干嘛。**\n"
    
     if data_summary.get('phone_app_summary'):
