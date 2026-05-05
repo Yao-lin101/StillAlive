@@ -3,7 +3,7 @@ import logging
 from django.utils import timezone
 from django.conf import settings
 from apps.characters.models import DailyReport, PersonaHistory
-from .llm_service import extract_text_from_anthropic_response
+from .llm_service import extract_text_from_anthropic_response, _clean_markdown_wrapper
 from .prompts import (
     PERSONA_SYSTEM_PROMPT_DEFAULT,
     PERSONA_TREND_GUIDANCE_FIRST,
@@ -151,7 +151,27 @@ def update_system_persona(config, yesterday_report_text=None, trigger_type='sche
         
         if new_persona:
             new_persona = new_persona.strip()
-            config.system_inferred_persona = new_persona
+            # 尝试清理 markdown 代码块并解析 JSON
+            cleaned_persona = _clean_markdown_wrapper(new_persona)
+            
+            # 尝试修复可能的 JSON 格式问题并验证
+            try:
+                # 寻找第一个 { 和最后一个 }
+                start_idx = cleaned_persona.find('{')
+                end_idx = cleaned_persona.rfind('}')
+                if start_idx != -1 and end_idx != -1 and end_idx > start_idx:
+                    json_str = cleaned_persona[start_idx:end_idx+1]
+                    parsed_json = json.loads(json_str)
+                    # 重新格式化为标准 JSON 字符串
+                    final_persona_text = json.dumps(parsed_json, ensure_ascii=False, indent=2)
+                else:
+                    # 如果找不到大括号，或者解析失败，降级保存原始清理文本
+                    final_persona_text = cleaned_persona
+            except json.JSONDecodeError:
+                logger.warning("Failed to decode JSON from persona response, saving raw cleaned text.")
+                final_persona_text = cleaned_persona
+                
+            config.system_inferred_persona = final_persona_text
             config.save(update_fields=['system_inferred_persona'])
             logger.info(f"Successfully updated system_inferred_persona for {config.character.name}")
             
@@ -159,7 +179,7 @@ def update_system_persona(config, yesterday_report_text=None, trigger_type='sche
                 config=config,
                 date=today,
                 defaults={
-                    'persona_content': new_persona,
+                    'persona_content': final_persona_text,
                     'data_dates': data_dates,
                     'is_first_time': is_first_time,
                     'model_used': model,
