@@ -162,8 +162,19 @@ def update_system_persona(config, yesterday_report_text=None, trigger_type='sche
                 if start_idx != -1 and end_idx != -1 and end_idx > start_idx:
                     json_str = cleaned_persona[start_idx:end_idx+1]
                     parsed_json = json.loads(json_str)
-                    # 重新格式化为标准 JSON 字符串
-                    final_persona_text = json.dumps(parsed_json, ensure_ascii=False, indent=2)
+                    
+                    # 将 JSON 重新组装为更好读的 Markdown 格式，供下游提示词或人类直接阅读
+                    tags = " / ".join(parsed_json.get("identity_tags", []))
+                    core_status = parsed_json.get("core_status", "无")
+                    behavior = parsed_json.get("behavior_pattern", "无")
+                    judgment = parsed_json.get("overall_judgment", "无")
+                    
+                    final_persona_text = (
+                        f"**【身份标签】**：{tags}\n"
+                        f"**【核心状态】**：{core_status}\n"
+                        f"**【行为模式】**：{behavior}\n"
+                        f"**【综合判定】**：{judgment}"
+                    )
                 else:
                     # 如果找不到大括号，或者解析失败，降级保存原始清理文本
                     final_persona_text = cleaned_persona
