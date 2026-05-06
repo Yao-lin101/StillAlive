@@ -323,8 +323,11 @@ def _compute_active_time_ranges(active_timestamps, last_record_time):
     
     # 添加最后一个区间，结束时间为最后一次同步的时间
     if current_start:
-        # 确保最后一个区间的结束时间是最后一次同步的时间
-        final_end = last_record_time if last_record_time else current_end
+        # 如果距离最后一次活动的时间仍在允许的间隔内，则延伸到最后一次同步时间
+        if last_record_time and (last_record_time - current_end).total_seconds() / 60 <= ACTIVE_INTERVAL_MAX_GAP:
+            final_end = last_record_time
+        else:
+            final_end = current_end
         time_ranges.append((current_start, final_end))
     
     return time_ranges
@@ -519,6 +522,30 @@ def aggregate_status_data(character, field_mappings, target_date, end_datetime=N
     
     aggregated['yesterday_active_time_ranges'] = formatted_yesterday_ranges
     aggregated['day_before_yesterday_active_time_ranges'] = formatted_day_before_yesterday_ranges
+    
+    # 全局时间轴合并（跨越前天、昨天、今天的三天数据统一合并）
+    def format_relative_time(dt, t_date):
+        local_dt = timezone.localtime(dt) if timezone.is_aware(dt) else dt
+        if local_dt.date() == t_date:
+            return f"今天 {local_dt.strftime('%H:%M')}"
+        elif local_dt.date() == t_date - timedelta(days=1):
+            return f"昨天 {local_dt.strftime('%H:%M')}"
+        elif local_dt.date() == t_date - timedelta(days=2):
+            return f"前天 {local_dt.strftime('%H:%M')}"
+        else:
+            return local_dt.strftime('%m-%d %H:%M')
+
+    all_timestamps = day_before_yesterday_timestamps + yesterday_timestamps + active_timestamps
+    # active_timestamps 已通过各天的查询得到，按顺序拼接即为递增状态
+    global_ranges = _compute_active_time_ranges(all_timestamps, last_record_time)
+    
+    formatted_global_ranges = []
+    for start, end in global_ranges:
+        start_str = format_relative_time(start, target_date)
+        end_str = format_relative_time(end, target_date)
+        formatted_global_ranges.append(f"{start_str} 到 {end_str}")
+        
+    aggregated['global_active_time_ranges'] = formatted_global_ranges
     
     return aggregated
 

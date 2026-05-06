@@ -116,24 +116,21 @@ def _build_data_section(data_summary, target_date_str, weekday_str, cutoff_time_
             return "无记录"
         return ", ".join(ranges_list)
 
-    active_ranges_str = format_time_ranges(data_summary.get('active_time_ranges', []))
-    yesterday_ranges = format_time_ranges(data_summary.get('yesterday_active_time_ranges', []))
-    day_before_yesterday_ranges = format_time_ranges(data_summary.get('day_before_yesterday_active_time_ranges', []))
-
+    global_ranges = data_summary.get('global_active_time_ranges', [])
+    
     data_section = f"""
 ## 数据概览
 - 日期: {target_date_str}{weekday_str}（据此推断工作日或节假日）
 - 总记录数: {data_summary.get('total_records', 0)}
-（注：“活动时间段”超过{ACTIVE_INTERVAL_MAX_GAP}分钟的间隔会被视为不同区间，具体以app使用时长进行判断是否活跃）
-- 今日活动时间段: {active_ranges_str}
 """
     
-    if yesterday_ranges != "无记录" or day_before_yesterday_ranges != "无记录":
-        data_section += "- 历史辅助（仅供推断睡眠/通宵及近期规律，严禁歪曲或遗漏数字）：\n"
-        if yesterday_ranges != "无记录":
-            data_section += f"  - 昨天活动时间段: {yesterday_ranges}\n"
-        if day_before_yesterday_ranges != "无记录":
-            data_section += f"  - 前天活动时间段: {day_before_yesterday_ranges}\n"
+    if global_ranges:
+        ranges_str = "\n".join([f"- {r}" for r in global_ranges])
+        data_section += f"""
+## 近期连续活跃周期
+（注：已自动合并跨天活动，相差{ACTIVE_INTERVAL_MAX_GAP}分钟以内的活动将被连接。两个周期之间的空白时间代表设备脱机、人在休息或睡眠。请重点关注这些“未列出的空白时间”来推断脱机长短。）
+{ranges_str}
+"""
 
     data_section += f"""
 - 数据截止时间: {cutoff_time_str}
@@ -303,7 +300,8 @@ def analyze_with_llm(
             'last_record_time': aggregated_data.get('last_record_time'),
             'data_cutoff_time': aggregated_data.get('data_cutoff_time'),
             'yesterday_active_time_ranges': aggregated_data.get('yesterday_active_time_ranges', []),
-            'day_before_yesterday_active_time_ranges': aggregated_data.get('day_before_yesterday_active_time_ranges', [])
+            'day_before_yesterday_active_time_ranges': aggregated_data.get('day_before_yesterday_active_time_ranges', []),
+            'global_active_time_ranges': aggregated_data.get('global_active_time_ranges', [])
         }
         
         ai_persona = ai_persona or {}
