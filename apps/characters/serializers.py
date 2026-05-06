@@ -107,13 +107,15 @@ class CharacterStatusUpdateSerializer(serializers.Serializer):
     type = serializers.CharField(max_length=50)
     data = serializers.JSONField()
 
+class CharacterStatusItemSerializer(serializers.Serializer):
+    data = serializers.JSONField()
+    updated_at = serializers.DateTimeField()
+
 class CharacterStatusResponseSerializer(serializers.Serializer):
     status = serializers.CharField()  # online/offline
     last_updated = serializers.DateTimeField(allow_null=True)
     status_data = serializers.DictField(
-        child=serializers.DictField(
-            child=serializers.JSONField()
-        )
+        child=CharacterStatusItemSerializer()
     )
 
 class WillConfigSerializer(serializers.ModelSerializer):
