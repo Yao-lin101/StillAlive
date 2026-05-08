@@ -104,12 +104,38 @@ def _clean_markdown_wrapper(result_text):
 
 
 
-def _extract_meta_instructions(client, model, private_blocks):
+def _get_data_keys(data_summary):
     """
-    使用 LLM 从私聊记录中提取用户对日报的特殊要求。
+    从数据摘要中提取所有可能的敏感键值（应用名、标题等）
+    """
+    keys = set()
+    
+    # 手机应用名
+    if 'phone_apps' in data_summary:
+        keys.update(data_summary['phone_apps'].keys())
+    
+    # 电脑应用名和标题
+    if 'pc_apps' in data_summary:
+        for app_name, app_data in data_summary['pc_apps'].items():
+            keys.add(app_name)
+            if isinstance(app_data, dict) and 'titles' in app_data:
+                keys.update(app_data['titles'].keys())
+    
+    # 聊天话题
+    if 'qq_messages' in data_summary:
+        for block in data_summary['qq_messages']:
+            if isinstance(block, dict) and '话题' in block:
+                keys.add(block['话题'])
+                
+    return list(keys)
+
+
+def _extract_meta_instructions(client, model, private_blocks, data_keys=[]):
+    """
+    第一阶段：从私聊记录中提取元指令和脱敏需求
     """
     if not private_blocks:
-        return "NONE"
+        return {"instructions": [], "redactions": {}, "has_any": False}
 
     # 格式化私聊记录供提取使用
     chat_content = ""
@@ -129,34 +155,43 @@ def _extract_meta_instructions(client, model, private_blocks):
         chat_content += "---\n"
 
     try:
-        prompt = META_INSTRUCTION_EXTRACTION_PROMPT.format(private_chat_content=chat_content)
+        data_keys_str = ", ".join(data_keys)
+        prompt = META_INSTRUCTION_EXTRACTION_PROMPT.format(
+            private_chat_content=chat_content,
+            data_keys=data_keys_str
+        )
         
         # 打印提取阶段的日志
-        print("\n" + "="*30 + " [STAGE 1: META-INSTRUCTION EXTRACTION] " + "="*30)
-        print(f"PROMPT SENT TO LLM:\n{prompt}")
+        print("\n" + "="*30 + " [STAGE 1: AUDIT & REDACTION] " + "="*30)
+        print(f"PROMPT SENT TO LLM (Data Keys: {len(data_keys)} items)")
 
         response = client.messages.create(
             model=model,
-            max_tokens=500,
-            temperature=0,  # 提取任务需要稳定
-            messages=[
-                {
-                    "role": "user",
-                    "content": prompt
-                }
-            ]
+            max_tokens=1000,
+            temperature=0,
+            messages=[{"role": "user", "content": prompt}]
         )
-        instructions = extract_text_from_anthropic_response(response)
-        result = instructions.strip() if instructions else "NONE"
         
-        # 打印 LLM 的回复内容
-        print(f"\nLLM RESPONSE:\n{result}")
+        raw_result = extract_text_from_anthropic_response(response)
+        
+        # 尝试解析 JSON
+        import json
+        import re
+        # 处理可能存在的 Markdown 代码块包裹
+        json_match = re.search(r'\{.*\}', raw_result, re.DOTALL)
+        if json_match:
+            result = json.loads(json_match.group())
+        else:
+            result = json.loads(raw_result)
+            
+        # 打印审计结果
+        print(f"AUDIT RESULT:\nInstructions: {result.get('instructions')}\nRedactions: {result.get('redactions')}")
         print("="*100 + "\n")
         
         return result
     except Exception as e:
         logger.error(f"Failed to extract meta-instructions: {e}")
-        return "NONE"
+        return {"instructions": [], "redactions": {}, "has_any": False}
 
 
 
@@ -349,15 +384,18 @@ def analyze_with_llm(
             'global_active_time_ranges': aggregated_data.get('global_active_time_ranges', [])
         }
         
-        # 1. 指令提取阶段 (仅当有私聊时)
+        # 1. 指令提取与脱敏审计阶段
         private_blocks = []
         for msg_record in data_summary.get('qq_messages', []):
             if isinstance(msg_record, dict) and msg_record.get('message_type') == 'private':
                 private_blocks.extend(msg_record.get('message_data', []))
         
-        meta_instructions = "NONE"
-        if private_blocks:
-            meta_instructions = _extract_meta_instructions(client, model, private_blocks)
+        data_keys = _get_data_keys(data_summary)
+        audit_result = _extract_meta_instructions(client, model, private_blocks, data_keys)
+        
+        meta_instructions = "\n".join(audit_result.get('instructions', []))
+        redaction_map = audit_result.get('redactions', {})
+        has_meta = audit_result.get('has_any', False)
         
         # 2. 构建 System Prompt 
         ai_persona = ai_persona or {}
@@ -411,7 +449,7 @@ def analyze_with_llm(
 
         # 动态构建特殊指令板块
         meta_instructions_section = ""
-        if meta_instructions and meta_instructions != "NONE":
+        if meta_instructions and meta_instructions.strip():
             meta_instructions_section = f"""# 本次任务特殊约束 (Meta-Instructions)
 <special_constraints>
 {meta_instructions}
@@ -460,8 +498,16 @@ def analyze_with_llm(
                 data_section=data_section
             )
 
-        # 4. 动态追加末尾强化提醒 (针对特殊约束内容复述)
-        if meta_instructions and meta_instructions != "NONE":
+        # 4. 执行数据脱敏 (Data Redaction)
+        # 仅针对即将发送给 LLM 的 user_prompt 进行全局替换
+        if redaction_map:
+            print(f"Applying redactions: {len(redaction_map)} items...")
+            for original, replacement in redaction_map.items():
+                if original and original.strip():
+                    user_prompt = user_prompt.replace(original, replacement)
+
+        # 5. 动态追加末尾强化提醒 (针对特殊约束内容复述)
+        if meta_instructions and meta_instructions.strip():
             user_prompt += f"\n\n**再次提醒**：请务必检查并严格遵守以下【本次任务特殊约束】，确保输出内容完全符合用户的最新指示：\n{meta_instructions}"
 
         print("\n" + "="*20 + " LLM Analysis Prompt Start " + "="*20)
