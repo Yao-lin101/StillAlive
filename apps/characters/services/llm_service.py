@@ -121,6 +121,12 @@ def _extract_meta_instructions(client, model, private_blocks):
         chat_content += "---\n"
 
     try:
+        prompt = META_INSTRUCTION_EXTRACTION_PROMPT.format(private_chat_content=chat_content)
+        
+        # 打印提取阶段的日志
+        print("\n" + "="*30 + " [STAGE 1: META-INSTRUCTION EXTRACTION] " + "="*30)
+        print(f"PROMPT SENT TO LLM:\n{prompt}")
+
         response = client.messages.create(
             model=model,
             max_tokens=500,
@@ -128,12 +134,18 @@ def _extract_meta_instructions(client, model, private_blocks):
             messages=[
                 {
                     "role": "user",
-                    "content": META_INSTRUCTION_EXTRACTION_PROMPT.format(private_chat_content=chat_content)
+                    "content": prompt
                 }
             ]
         )
         instructions = extract_text_from_anthropic_response(response)
-        return instructions.strip() if instructions else "NONE"
+        result = instructions.strip() if instructions else "NONE"
+        
+        # 打印 LLM 的回复内容
+        print(f"\nLLM RESPONSE:\n{result}")
+        print("="*100 + "\n")
+        
+        return result
     except Exception as e:
         logger.error(f"Failed to extract meta-instructions: {e}")
         return "NONE"
