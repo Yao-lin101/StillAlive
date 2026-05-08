@@ -131,23 +131,9 @@ def _get_data_keys(data_summary):
             if isinstance(range_apps, dict):
                 keys.update(range_apps.keys())
     
-    # 4. 聊天记录（包含群聊和私聊的话题）
-    if 'qq_messages' in data_summary:
-        for msg_record in data_summary['qq_messages']:
-            if not isinstance(msg_record, dict):
-                continue
-            
-            # 提取话题（针对已总结的数据）
-            if '话题' in msg_record:
-                keys.add(msg_record['话题'])
-            
-            # 深入 message_data (针对原始结构)
-            m_data = msg_record.get('message_data', [])
-            if isinstance(m_data, list):
-                for block in m_data:
-                    if isinstance(block, dict):
-                        if '话题' in block:
-                            keys.add(block['话题'])
+    # 4. 聊天记录 (目前认为话题本身已足够模糊，不需要作为脱敏 Key，故移除)
+    # if 'qq_messages' in data_summary:
+    #     ...
                 
     return [k for k in keys if k and k.strip()]
 
