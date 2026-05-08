@@ -106,28 +106,50 @@ def _clean_markdown_wrapper(result_text):
 
 def _get_data_keys(data_summary):
     """
-    从数据摘要中提取所有可能的敏感键值（应用名、标题等）
+    从数据摘要中提取所有可能的敏感键值（应用名、标题、话题等）
     """
     keys = set()
     
-    # 手机应用名
-    if 'phone_apps' in data_summary:
-        keys.update(data_summary['phone_apps'].keys())
+    # 1. 手机应用名 (从 summary 提取键名)
+    if 'phone_app_summary' in data_summary and isinstance(data_summary['phone_app_summary'], dict):
+        keys.update(data_summary['phone_app_summary'].keys())
     
-    # 电脑应用名和标题
-    if 'pc_apps' in data_summary:
-        for app_name, app_data in data_summary['pc_apps'].items():
-            keys.add(app_name)
-            if isinstance(app_data, dict) and 'titles' in app_data:
-                keys.update(app_data['titles'].keys())
+    # 2. 电脑应用名 (从 summary 提取键名)
+    if 'computer_app_summary' in data_summary and isinstance(data_summary['computer_app_summary'], dict):
+        keys.update(data_summary['computer_app_summary'].keys())
+        
+    # 3. 详细时间段中的应用和标题 (电脑端的 titles)
+    # 手机端
+    if 'phone_app_by_time_range' in data_summary:
+        for range_apps in data_summary['phone_app_by_time_range'].values():
+            if isinstance(range_apps, dict):
+                keys.update(range_apps.keys())
     
-    # 聊天话题
+    # 电脑端 (包含 app 名和可能的标题)
+    if 'computer_app_by_time_range' in data_summary:
+        for range_apps in data_summary['computer_app_by_time_range'].values():
+            if isinstance(range_apps, dict):
+                keys.update(range_apps.keys())
+    
+    # 4. 聊天记录（包含群聊和私聊的话题）
     if 'qq_messages' in data_summary:
-        for block in data_summary['qq_messages']:
-            if isinstance(block, dict) and '话题' in block:
-                keys.add(block['话题'])
+        for msg_record in data_summary['qq_messages']:
+            if not isinstance(msg_record, dict):
+                continue
+            
+            # 提取话题（针对已总结的数据）
+            if '话题' in msg_record:
+                keys.add(msg_record['话题'])
+            
+            # 深入 message_data (针对原始结构)
+            m_data = msg_record.get('message_data', [])
+            if isinstance(m_data, list):
+                for block in m_data:
+                    if isinstance(block, dict):
+                        if '话题' in block:
+                            keys.add(block['话题'])
                 
-    return list(keys)
+    return [k for k in keys if k and k.strip()]
 
 
 def _extract_meta_instructions(client, model, private_blocks, data_keys=[]):
