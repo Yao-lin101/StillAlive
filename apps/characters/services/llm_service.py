@@ -189,29 +189,35 @@ def _extract_meta_instructions(client, model, private_blocks, data_keys=[]):
 
         response = client.messages.create(
             model=model,
-            max_tokens=1000,
+            max_tokens=4000,  # 增加 token 限制以防脱敏表太长被截断
             temperature=0,
             messages=[{"role": "user", "content": prompt}]
         )
         
         raw_result = extract_text_from_anthropic_response(response)
-        print(f"RAW LLM RESPONSE:\n{raw_result}")
+        print(f"RAW LLM RESPONSE (Length: {len(raw_result)}):\n{raw_result}")
         
         # 尝试解析 JSON
         import json
         import re
-        # 处理可能存在的 Markdown 代码块包裹
-        json_match = re.search(r'\{.*\}', raw_result, re.DOTALL)
-        if json_match:
-            result = json.loads(json_match.group())
-        else:
-            result = json.loads(raw_result)
-            
-        # 打印审计结果
-        print(f"AUDIT RESULT:\nInstructions: {result.get('instructions')}\nRedactions: {result.get('redactions')}")
-        print("="*100 + "\n")
         
-        return result
+        try:
+            # 处理可能存在的 Markdown 代码块包裹
+            json_match = re.search(r'(\{.*\})', raw_result, re.DOTALL)
+            if json_match:
+                result = json.loads(json_match.group(1))
+            else:
+                result = json.loads(raw_result.strip())
+                
+            # 打印审计结果摘要
+            print(f"AUDIT RESULT: Instructions({len(result.get('instructions', []))}), Redactions({len(result.get('redactions', {}))})")
+            print("="*100 + "\n")
+            
+            return result
+        except Exception as json_err:
+            print(f"JSON Parsing failed: {json_err}")
+            # 如果截断了，尝试闭合大括号进行“抢救性解析” (可选，但通常返回空更安全)
+            return {"instructions": [], "redactions": {}, "has_any": False}
     except Exception as e:
         logger.error(f"Failed to extract meta-instructions: {e}")
         return {"instructions": [], "redactions": {}, "has_any": False}
