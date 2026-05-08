@@ -163,8 +163,9 @@ def _extract_meta_instructions(client, model, private_blocks, data_keys=[]):
         chat_content += "---\n"
 
     try:
-        # 改用换行列表形式，避免标题内逗号导致歧义
-        data_keys_str = "\n".join([f"- {k}" for k in data_keys])
+        # 排序并改用换行列表形式，避免标题内逗号导致歧义
+        sorted_keys = sorted(data_keys)
+        data_keys_str = "\n".join([f"- {k}" for k in sorted_keys])
         prompt = META_INSTRUCTION_EXTRACTION_PROMPT.format(
             private_chat_content=chat_content,
             data_keys=data_keys_str
@@ -422,7 +423,7 @@ def analyze_with_llm(
         audit_result = _extract_meta_instructions(client, model, private_blocks, data_keys)
         
         meta_instructions = "\n".join(audit_result.get('instructions', []))
-        redaction_map = audit_result.get('redactions', {})
+        redaction_items = audit_result.get('redactions', [])
         has_meta = audit_result.get('has_any', False)
         
         # 2. 构建 System Prompt 
@@ -528,11 +529,19 @@ def analyze_with_llm(
 
         # 4. 执行数据脱敏 (Data Redaction)
         # 仅针对即将发送给 LLM 的 user_prompt 进行全局替换
-        if redaction_map:
-            print(f"Applying redactions: {len(redaction_map)} items...")
-            for original, replacement in redaction_map.items():
-                if original and original.strip():
-                    user_prompt = user_prompt.replace(original, replacement)
+        if redaction_items:
+            mask_text = "【数据封存无权访问】"
+            print(f"Applying redactions: {len(redaction_items)} items...")
+            # 如果是列表，循环替换为统一遮盖词
+            if isinstance(redaction_items, list):
+                for original in redaction_items:
+                    if original and original.strip():
+                        user_prompt = user_prompt.replace(original, mask_text)
+            # 兼容旧的字典格式 (以防万一)
+            elif isinstance(redaction_items, dict):
+                for original, replacement in redaction_items.items():
+                    if original and original.strip():
+                        user_prompt = user_prompt.replace(original, replacement)
 
         # 5. 动态追加末尾强化提醒 (针对特殊约束内容复述)
         if meta_instructions and meta_instructions.strip():
