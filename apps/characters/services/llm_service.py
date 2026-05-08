@@ -177,12 +177,16 @@ def _extract_meta_instructions(client, model, private_blocks, data_keys=[]):
 
         response = client.messages.create(
             model=model,
-            max_tokens=4000,  # 增加 token 限制以防脱敏表太长被截断
+            max_tokens=8192,  # 增加 token 限制以防脱敏表太长被截断
             temperature=0,
             messages=[{"role": "user", "content": prompt}]
         )
         
         raw_result = extract_text_from_anthropic_response(response)
+        if raw_result is None:
+            print("Warning: LLM returned None response content.")
+            return {"instructions": [], "redactions": [], "has_any": False}
+            
         print(f"RAW LLM RESPONSE (Length: {len(raw_result)}):\n{raw_result}")
         
         # 尝试解析 JSON
