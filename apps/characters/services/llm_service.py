@@ -469,10 +469,10 @@ def analyze_with_llm(
         print(f"\nUser Prompt:\n{user_prompt}")
         print("="*20 + " LLM Analysis Prompt End " + "="*20 + "\n")
         
-        logger.info("=== LLM Analysis Prompt Start ===")
-        logger.info(f"System Prompt:\n{system_prompt}")
-        logger.info(f"User Prompt:\n{user_prompt}")
-        logger.info("=== LLM Analysis Prompt End ===")
+        logger.debug("=== LLM Analysis Prompt Start ===")
+        logger.debug(f"System Prompt:\n{system_prompt}")
+        logger.debug(f"User Prompt:\n{user_prompt}")
+        logger.debug("=== LLM Analysis Prompt End ===")
 
         response = client.messages.create(
             model=model,
