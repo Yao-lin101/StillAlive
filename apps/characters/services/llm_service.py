@@ -114,10 +114,18 @@ def _extract_meta_instructions(client, model, private_blocks):
     # 格式化私聊记录供提取使用
     chat_content = ""
     for block in private_blocks:
+        # 兼容原始对话格式
         if '用户' in block:
             chat_content += f"用户: {block['用户']}\n"
         if '你的回复' in block:
             chat_content += f"你: {block['你的回复']}\n"
+        
+        # 兼容总结后的对话格式
+        if '话题' in block:
+            chat_content += f"话题: {block['话题']}\n"
+        if '总结' in block:
+            chat_content += f"总结: {block['总结']}\n"
+            
         chat_content += "---\n"
 
     try:
