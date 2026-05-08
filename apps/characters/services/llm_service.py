@@ -534,7 +534,7 @@ def analyze_with_llm(
         # 4. 执行数据脱敏 (Data Redaction)
         # 仅针对即将发送给 LLM 的 user_prompt 进行全局替换
         if redaction_items:
-            mask_text = "【数据封存无权访问】"
+            mask_text = "【隐藏剧情】"
             print(f"Applying redactions: {len(redaction_items)} items...")
             # 如果是列表，循环替换为统一遮盖词
             if isinstance(redaction_items, list):
