@@ -163,7 +163,8 @@ def _extract_meta_instructions(client, model, private_blocks, data_keys=[]):
         chat_content += "---\n"
 
     try:
-        data_keys_str = ", ".join(data_keys)
+        # 改用换行列表形式，避免标题内逗号导致歧义
+        data_keys_str = "\n".join([f"- {k}" for k in data_keys])
         prompt = META_INSTRUCTION_EXTRACTION_PROMPT.format(
             private_chat_content=chat_content,
             data_keys=data_keys_str
@@ -202,8 +203,13 @@ def _extract_meta_instructions(client, model, private_blocks, data_keys=[]):
             else:
                 result = json.loads(processed_raw.strip())
                 
+            if not isinstance(result, dict):
+                result = {"instructions": [], "redactions": {}, "has_any": False}
+                
             # 打印审计结果摘要
-            print(f"AUDIT RESULT: Instructions({len(result.get('instructions', []))}), Redactions({len(result.get('redactions', {}))})")
+            instr_count = len(result.get('instructions') or [])
+            redact_count = len(result.get('redactions') or {})
+            print(f"AUDIT RESULT: Instructions({instr_count}), Redactions({redact_count})")
             print("="*100 + "\n")
             
             return result
