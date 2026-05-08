@@ -460,6 +460,10 @@ def analyze_with_llm(
                 data_section=data_section
             )
 
+        # 4. 动态追加末尾强化提醒 (针对特殊约束内容复述)
+        if meta_instructions and meta_instructions != "NONE":
+            user_prompt += f"\n\n**再次提醒**：请务必检查并严格遵守以下【本次任务特殊约束】，确保输出内容完全符合用户的最新指示：\n{meta_instructions}"
+
         print("\n" + "="*20 + " LLM Analysis Prompt Start " + "="*20)
         print(f"System Prompt:\n{system_prompt}")
         print(f"\nUser Prompt:\n{user_prompt}")
