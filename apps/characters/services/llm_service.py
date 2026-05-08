@@ -6,7 +6,9 @@ from .prompts import (
     DEFAULT_SYSTEM_PROMPT, COMMON_ANALYSIS_RULES,
     INCREMENTAL_UPDATE_PROMPT, FINAL_SUMMARY_PROMPT,
     CUSTOM_FORMAT_INSTRUCTIONS, DEFAULT_FORMAT_INSTRUCTIONS,
-    CUSTOM_QQ_FORMAT_SECTION, DEFAULT_QQ_FORMAT_SECTION
+    CUSTOM_QQ_FORMAT_SECTION, DEFAULT_QQ_FORMAT_SECTION,
+    META_INSTRUCTION_EXTRACTION_PROMPT, STRUCTURED_SYSTEM_PROMPT,
+    INITIAL_REPORT_PROMPT
 )
 from .data_service import ACTIVE_INTERVAL_MAX_GAP
 
@@ -102,6 +104,42 @@ def _clean_markdown_wrapper(result_text):
 
 
 
+def _extract_meta_instructions(client, model, private_blocks):
+    """
+    使用 LLM 从私聊记录中提取用户对日报的特殊要求。
+    """
+    if not private_blocks:
+        return "NONE"
+
+    # 格式化私聊记录供提取使用
+    chat_content = ""
+    for block in private_blocks:
+        if '用户' in block:
+            chat_content += f"用户: {block['用户']}\n"
+        if '你的回复' in block:
+            chat_content += f"你: {block['你的回复']}\n"
+        chat_content += "---\n"
+
+    try:
+        response = client.messages.create(
+            model=model,
+            max_tokens=500,
+            temperature=0,  # 提取任务需要稳定
+            messages=[
+                {
+                    "role": "user",
+                    "content": META_INSTRUCTION_EXTRACTION_PROMPT.format(private_chat_content=chat_content)
+                }
+            ]
+        )
+        instructions = extract_text_from_anthropic_response(response)
+        return instructions.strip() if instructions else "NONE"
+    except Exception as e:
+        logger.error(f"Failed to extract meta-instructions: {e}")
+        return "NONE"
+
+
+
 def _build_data_section(data_summary, target_date_str, weekday_str, cutoff_time_str, is_day_ended=False, include_system_prompt=True):
     """
     统一格式化数据概览和应用使用情况，返回用于注入 prompt 的文本
@@ -135,8 +173,7 @@ def _build_data_section(data_summary, target_date_str, weekday_str, cutoff_time_
     data_section += f"""
 - 数据截止时间: {cutoff_time_str}
 """
-    if not is_day_ended and include_system_prompt:
-        data_section += "\n**【系统强烈提示】当前这一天还没结束！数据只同步到了上述截止时间。你的分析必须处于“正在直播”的视角，评价时要用“截至目前”，绝对不能作结案陈词（比如“今天你一共就走了xx步”、“到这就收工了”），而是要推测他接下去会干嘛。**\n"
+    # 注意：这里的系统提示词逻辑稍后将在 analyze_with_llm 中重构，目前保留基础数据
    
     if data_summary.get('phone_app_summary'):
         data_section += f"\n## 手机应用（总计前20）\n{json.dumps(data_summary['phone_app_summary'], ensure_ascii=False)}\n"
@@ -248,22 +285,10 @@ def analyze_with_llm(
     is_incremental=False,
     previous_cutoff_time=None,
     long_term_memory_context=None,
+    include_important_events=True,
 ):
     """
-    使用 Anthropic API 分析数据
-    
-    Args:
-        aggregated_data: 聚合后的数据
-        character_name: 角色名称
-        persona: 角色人设信息（可选）- 用户的背景信息
-        ai_persona: AI 人设配置（可选）- 自定义 AI 的身份、性格、语言风格
-        system_inferred_persona: 系统暗中推断的真实人设档案（可选）
-        previous_report: 上一份日报的 markdown 内容（用于增量更新）
-        is_incremental: 是否为增量更新模式（保持风格一致性）
-        long_term_memory_context: 重要事件长期记忆上下文（可选）
-    
-    Returns:
-        dict: AI 分析结果，包含 'markdown' 字段
+    使用 Anthropic API 分析数据 (兼容 MiniMax)
     """
     api_key = getattr(settings, 'ANTHROPIC_API_KEY', None)
     model = getattr(settings, 'ANTHROPIC_MODEL', 'claude-3-5-sonnet-20241022')
@@ -304,47 +329,38 @@ def analyze_with_llm(
             'global_active_time_ranges': aggregated_data.get('global_active_time_ranges', [])
         }
         
-        ai_persona = ai_persona or {}
+        # 1. 指令提取阶段 (仅当有私聊时)
+        private_blocks = []
+        for msg_record in data_summary.get('qq_messages', []):
+            if isinstance(msg_record, dict) and msg_record.get('message_type') == 'private':
+                private_blocks.extend(msg_record.get('message_data', []))
         
+        meta_instructions = "NONE"
+        if private_blocks:
+            meta_instructions = _extract_meta_instructions(client, model, private_blocks)
+        
+        # 2. 构建 System Prompt 
+        ai_persona = ai_persona or {}
         core_identity = ai_persona.get('core_identity', '')
         personality_traits = ai_persona.get('personality_traits', '')
         language_style = ai_persona.get('language_style', '')
         
-        has_custom_ai_persona = bool(core_identity or personality_traits or language_style)
-        
-        if has_custom_ai_persona:
-            ai_identity_parts = []
-            if core_identity:
-                ai_identity_parts.append(core_identity)
-            if personality_traits:
-                ai_identity_parts.append(personality_traits)
-            
-            ai_identity_desc = "\n".join(ai_identity_parts)
-            
-            language_style_section = ""
-            if language_style:
-                language_style_section = f"\n## 语言风格\n{language_style}\n"
-            
-            system_prompt = f"{ai_identity_desc}\n{language_style_section}"
+        if core_identity or personality_traits:
+            ai_identity_desc = f"{core_identity}\n{personality_traits}"
         else:
-            system_prompt = DEFAULT_SYSTEM_PROMPT
+            ai_identity_desc = DEFAULT_SYSTEM_PROMPT
 
-        cutoff_time_str = data_summary.get('data_cutoff_time', '未知')
+        if language_style:
+            ai_identity_desc += f"\n## 语言风格\n{language_style}\n"
         
+        cutoff_time_str = data_summary.get('data_cutoff_time', '未知')
         target_date_str = data_summary.get('date', '')
-        weekday_str = ""
-        if target_date_str:
-            try:
-                target_date_obj = timezone.datetime.fromisoformat(target_date_str).date()
-                weekday_map = {0: '星期一', 1: '星期二', 2: '星期三', 3: '星期四', 4: '星期五', 5: '星期六', 6: '星期日'}
-                weekday_str = f" ({weekday_map[target_date_obj.weekday()]})"
-            except Exception:
-                pass
-                
+        
         is_day_ended = not is_incremental
         if cutoff_time_str and cutoff_time_str != '未知' and target_date_str:
             try:
                 cutoff_dt = timezone.datetime.fromisoformat(cutoff_time_str)
+                target_date_obj = timezone.datetime.fromisoformat(target_date_str).date()
                 local_cutoff_dt = timezone.localtime(cutoff_dt)
                 if local_cutoff_dt.date() > target_date_obj:
                     is_day_ended = True
@@ -353,81 +369,75 @@ def analyze_with_llm(
             except Exception:
                 pass
         
-        # 1. 统一生成数据概览 (data_section)
-        data_section = _build_data_section(data_summary, target_date_str, weekday_str, cutoff_time_str, is_day_ended=is_day_ended)
+        report_mode = "全天结案总结" if is_day_ended else "日间增量更新"
+        mode_hint = "请对全天进行复盘，给出最终定性结论。" if is_day_ended else "请以'截至目前'的视角进行锐评，推测后续活动。"
         
-        # 2. 统一生成目标人物档案 (persona_section)
-        persona_section = ""
-        if persona and persona.strip():
-            persona_section += f"\n## 用户自述角色背景\n{persona.strip()}\n"
-        if system_inferred_persona and system_inferred_persona.strip():
-            persona_section += f"\n## 你观察得出的真实侧写档案\n{system_inferred_persona.strip()}\n"
-        elif persona and persona.strip():
-            persona_section += "\n请结合上述自述背景进行分析，使分析更贴合角色。\n"
-        if long_term_memory_context and long_term_memory_context.strip():
-            persona_section += f"\n{long_term_memory_context.strip()}\n"
+        # 决定输出格式要求
+        qq_summary = data_summary.get('qq_messages_summary', {})
+        has_qq = qq_summary.get('total_message_blocks', 0) > 0
+        has_custom_ai_persona = bool(core_identity or personality_traits or language_style)
+        
+        if has_custom_ai_persona:
+            qq_sec = CUSTOM_QQ_FORMAT_SECTION if has_qq else ""
+            format_instructions = CUSTOM_FORMAT_INSTRUCTIONS.format(qq_format_section=qq_sec)
+        else:
+            qq_sec = DEFAULT_QQ_FORMAT_SECTION if has_qq else ""
+            format_instructions = DEFAULT_FORMAT_INSTRUCTIONS.format(qq_format_section=qq_sec)
+
+        # 准备用户画像信息（包含长期记忆）
+        user_persona_full = persona.strip() if persona else "无"
+        if include_important_events and long_term_memory_context and long_term_memory_context.strip():
+            user_persona_full += f"\n\n### 历史重要记忆\n{long_term_memory_context.strip()}"
+
+        # 动态构建特殊指令板块
+        meta_instructions_section = ""
+        if meta_instructions and meta_instructions != "NONE":
+            meta_instructions_section = f"""# 本次任务特殊约束 (Meta-Instructions)
+<special_constraints>
+{meta_instructions}
+</special_constraints>"""
+
+        system_prompt = STRUCTURED_SYSTEM_PROMPT.format(
+            ai_identity_desc=ai_identity_desc,
+            character_name=character_name,
+            user_persona=user_persona_full,
+            system_inferred_persona=system_inferred_persona.strip() if system_inferred_persona else "尚无深度侧写",
+            common_rules=COMMON_ANALYSIS_RULES,
+            report_mode=report_mode,
+            mode_hint=mode_hint,
+            cutoff_time=cutoff_time_str,
+            meta_instructions_section=meta_instructions_section,
+            format_instructions=format_instructions
+        )
+
+        # 3. 构建 User Prompt (Data Only)
+        data_section = _build_data_section(data_summary, target_date_str, "", cutoff_time_str, is_day_ended=is_day_ended, include_system_prompt=False)
         
         if not is_day_ended and previous_report and previous_report.strip():
-            # 清理上一份日报末尾由于代码自动拼接的数据截止时间尾巴，避免误导大模型或产生双重尾巴
             import re
             clean_previous_report = re.sub(r'\n+---\n+\*数据截止至：.*?\*\s*$', '', previous_report.strip())
-            
-            # 格式化上一次的截止时间
             prev_time_str = "之前"
             if previous_cutoff_time:
                 prev_time_str = timezone.localtime(previous_cutoff_time).strftime('%Y-%m-%d %H:%M')
-            curr_time_str = cutoff_time_str
-            if curr_time_str and curr_time_str != '未知':
-                try:
-                    dt = timezone.datetime.fromisoformat(curr_time_str)
-                    curr_time_str = dt.strftime('%Y-%m-%d %H:%M')
-                except Exception:
-                    pass
             
-            user_prompt = INCREMENTAL_UPDATE_PROMPT.format(
-                character_name=character_name,
+            user_prompt = INCREMENTAL_UPDATE_PROMPT_V2.format(
                 prev_time_str=prev_time_str,
-                curr_time_str=curr_time_str,
+                curr_time_str=cutoff_time_str,
                 clean_previous_report=clean_previous_report,
-                data_section=data_section,
-                persona_section=persona_section,
-                common_rules=COMMON_ANALYSIS_RULES
+                data_section=data_section
             )
         elif is_day_ended and previous_report and previous_report.strip():
-            # 最终总结阶段：整合所有带有中间过程标题的旧日报
             import re
             clean_previous_report = re.sub(r'\n+---\n+\*数据截止至：.*?\*\s*$', '', previous_report.strip())
-            
-            user_prompt = FINAL_SUMMARY_PROMPT.format(
+            user_prompt = FINAL_SUMMARY_PROMPT_V2.format(
                 clean_previous_report=clean_previous_report,
-                data_section=data_section,
-                persona_section=persona_section,
-                common_rules=COMMON_ANALYSIS_RULES
+                data_section=data_section
             )
         else:
-            user_prompt = f"请对用户 {character_name} 在 {data_summary.get('date')} 的活动进行分析。\n"
-            user_prompt += data_section
-            user_prompt += persona_section
-            
-            # 将核心约束和分析规则附加在数据之后、输出格式要求之前
-            user_prompt += f"\n{COMMON_ANALYSIS_RULES}\n"
-                
-        # 决定是否需要追加格式规范：
-        # 1. 增量更新模式 (未完结且有旧日报) -> 不需要，让它继承旧日报的格式
-        # 2. 从0生成 (无论是否完结) -> 需要
-        # 3. 最终结案 (完结且有旧日报) -> 需要 (重构成正式结构)
-        is_incremental_update = (not is_day_ended) and previous_report and previous_report.strip()
-        
-        if not is_incremental_update:
-            qq_summary = data_summary.get('qq_messages_summary', {})
-            has_qq = qq_summary.get('total_message_blocks', 0) > 0
-            
-            if has_custom_ai_persona:
-                qq_sec = CUSTOM_QQ_FORMAT_SECTION if has_qq else ""
-                user_prompt += f"\n{CUSTOM_FORMAT_INSTRUCTIONS.format(qq_format_section=qq_sec)}"
-            else:
-                qq_sec = DEFAULT_QQ_FORMAT_SECTION if has_qq else ""
-                user_prompt += f"\n{DEFAULT_FORMAT_INSTRUCTIONS.format(qq_format_section=qq_sec)}"
+            user_prompt = INITIAL_REPORT_PROMPT.format(
+                character_name=character_name,
+                data_section=data_section
+            )
 
         print("\n" + "="*20 + " LLM Analysis Prompt Start " + "="*20)
         print(f"System Prompt:\n{system_prompt}")
@@ -454,60 +464,24 @@ def analyze_with_llm(
         
         if not response.content or len(response.content) == 0:
             logger.error("LLM response is empty")
-            return {
-                'markdown': '## 分析失败\n\nAI 返回了空响应。',
-                'error': 'LLM response is empty'
-            }
+            return {'markdown': '## 分析失败\n\nAI 返回了空响应。', 'error': 'LLM response is empty'}
             
-        if getattr(response, 'stop_reason', None) == 'max_tokens':
-            logger.error(f"LLM response truncated due to max_tokens! Response: {response}")
-            return {
-                'markdown': '## 分析失败\n\nAI 回复由于长度限制被截断了（可能是思考过程过长）。',
-                'error': 'Response truncated due to max_tokens limit'
-            }
-        
         result_text = extract_text_from_anthropic_response(response)
-        
-        if result_text is None or not isinstance(result_text, str) or len(result_text.strip()) == 0:
-            logger.error(f"Failed to extract text from any block. Response: {response.content}")
-            return {
-                'markdown': '## 分析失败\n\nAI 返回了无效的响应格式。',
-                'error': 'Failed to extract text from response'
-            }
-        
-        logger.info(f"Successfully extracted text, length: {len(result_text)}")
-        
-        # 清理 LLM 回复格式
         result_text = _clean_markdown_wrapper(result_text)
-        logger.info(f"Cleaned text length: {len(result_text)}")
         
-        # 自动在结尾拼接数据截止时间，提升展示效果
-        cutoff_time_str = data_summary.get('data_cutoff_time')
+        # 拼接截止时间
         if cutoff_time_str:
             try:
                 dt = timezone.datetime.fromisoformat(cutoff_time_str)
-                # 由于已经是 localtime，可以直接提取出时分等信息
                 formatted_time = dt.strftime('%Y-%m-%d %H:%M')
                 result_text += f"\n\n---\n*数据截止至：{formatted_time}*"
             except Exception:
                 result_text += f"\n\n---\n*数据截止至：{cutoff_time_str}*"
         
-        return {
-            'markdown': result_text
-        }
+        return {'markdown': result_text}
         
-    except ImportError:
-        logger.error("Anthropic SDK not installed")
-        return {
-            'markdown': '## 分析失败\n\n由于依赖未安装，无法进行 AI 分析。',
-            'error': 'Anthropic SDK not installed'
-        }
     except Exception as e:
         logger.error(f"LLM analysis failed: {str(e)}")
         import traceback
         logger.error(traceback.format_exc())
-        return {
-            'markdown': f'## 分析失败\n\n分析过程中发生错误：{str(e)}',
-            'error': str(e)
-        }
-
+        return {'markdown': f'## 分析失败\n\n分析过程中发生错误：{str(e)}', 'error': str(e)}

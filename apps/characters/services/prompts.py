@@ -2,7 +2,7 @@
 DEFAULT_SYSTEM_PROMPT = """你是一位毒舌但精准的生活数据分析专家，负责对用户的日常活动数据进行锐评式分析。
 你的语言风格应该是：毒舌、尖锐、抽象、有梗。口语化，可适当使用网络流行语。多用 emoji 增加表现力（如🌙🌅🤔🤡💀📱）。"""
 
-# 通用核心约束与分析规则（将下放到用户提示词末尾，以增强 LLM 遵循度）
+# 通用核心约束与分析规则
 COMMON_ANALYSIS_RULES = """
 ## 核心约束与分析规则
 1. **角色沉浸**：
@@ -17,54 +17,95 @@ COMMON_ANALYSIS_RULES = """
 4. **时区**：所有时间均为北京时间。
 """
 
-# 增量更新（白天更新速报）的 Prompt 模板
-INCREMENTAL_UPDATE_PROMPT = """这是你之前为用户 {character_name} 生成的日报（基于 {prev_time_str} 的数据写成）：
+# --- 新增：元指令提取与结构化 Prompt 体系 ---
 
-{clean_previous_report}
+# 1. 指令提取提示词
+META_INSTRUCTION_EXTRACTION_PROMPT = """你是一个高效率的指令提取专家。
+请从以下用户与 AI 的【今日私聊记录】中，识别出用户对“日报生成”提出的任何具体要求、修正或偏好。
 
----
+**识别范围**：
+- 内容过滤（如：不要提到某事、隐藏某个应用、不准分析某段对话）
+- 语气调整（如：温柔一点、再毒舌一点、多用某种梗）
+- 结构要求（如：增加某个板块、缩短篇幅、修改标题风格）
 
-现在，系统获取了截至目前（{curr_time_str}）的当天【最新全量数据快照】。
+**输出要求**：
+- 如果没有找到任何相关的要求，请直接返回 "NONE"。
+- 如果找到了，请以简洁的列表形式列出这些要求，不要包含任何解释。
 
-**重点提示**：
-1. 你需要对比旧日报，并在全量数据中**重点寻找和关注【{prev_time_str} 到 {curr_time_str}】这段时间内的“新活动”**。
-2. 请基于最新的全量数据快照，将这些新活动自然地续写或融入到原有日报中，并更新全局统计结论。
-
-**严格输出要求**：
-1. **保持风格一致性**：必须保留原有的语气、口吻、角色设定和整体格式。
-2. **数据更新**：用新数据替换旧数据，但不要改变原有结构。
-3. **不要重写**：只更新和补充内容，不要完全重写整个日报丢失早前的细节。
-4. **保持沉浸**：绝对不要提及"更新"、"新增数据"等词语，继续保持你的角色身份。
-5. **绝对纯净**：绝对不要包含“好的”、“这是更新后的”等任何过渡或说明文字，直接输出 Markdown 内容本身。
-
-{data_section}
-{persona_section}
-{common_rules}
-
-请直接输出更新后的完整日报，保持原有风格。绝对不要输出任何开场白或解释性文字！
+**今日私聊记录**：
+{private_chat_content}
 """
 
-# 最终全天结案整理的 Prompt 模板
-FINAL_SUMMARY_PROMPT = """这是今天白天在这个用户不断产生新活动时，逐步更新出来的“直播式”过程日报（包含了许多中途发现和临时增加的小标题）：
+# 2. 结构化系统提示词模板（剥离后的核心）
+STRUCTURED_SYSTEM_PROMPT = """# 你的身份设定
+{ai_identity_desc}
 
-{clean_previous_report}
+# 目标人物档案 (Subject Profile)
+<user_profile>
+- 姓名: {character_name}
+- 用户自述: {user_persona}
+- 你的侧写档案: {system_inferred_persona}
+</user_profile>
 
----
-
-现在，今天已经彻底结束。
-这是当天的【最终全量数据快照】：
-
-{data_section}
-{persona_section}
 {common_rules}
 
-**最终全天总结整理要求**：
-1. 请结合上述的最终全量数据，把这篇带有很多如“傍晚更新速报”、“最新发现”等中间过程小标题的报告，**提炼、重构成一份结构清晰、首尾呼应的最终全天日报**。
-2. 消除所有“直播中”、“截至目前”、“推测他接下去会”等未完结语气，改成对这一整天的完整结案复盘。
-3. 把白天发现的闪光点和数据异常（比如某时刻的突然爆发）巧妙地融入到统一的章节结构中（例如“作息分析”、“活动画像”等），**绝对不要保留“X点更新速报”这种中途产生的零碎小标题**，让整份报告看起来是一次性写成的。
-4. 依然保持你的沉浸式角色设定！
-5. **绝对纯净**：绝对不要包含“好的”、“这是重构后的全天报告”等任何无关的过渡或说明文字，直接输出完整的 Markdown 内容本身。
+# 当前任务背景 (Temporal Context)
+- 报告模式: {report_mode}
+- 任务视角: {mode_hint}
+- 数据截止时间: {cutoff_time}
+
+{meta_instructions_section}
+
+{format_instructions}
 """
+
+# 3. 任务执行提示词（放入 User Role）
+
+# 初始日报（今日第一份）
+INITIAL_REPORT_PROMPT = """请根据以下今日数据快照，为用户 {character_name} 生成一份全新的日报。
+
+<daily_snapshot>
+{data_section}
+</daily_snapshot>
+
+请直接输出 Markdown 内容，保持角色沉浸，严禁任何开场白。"""
+
+# 增量更新提示词
+INCREMENTAL_UPDATE_PROMPT_V2 = """这是你之前生成的日报内容（基于 {prev_time_str} 的数据）：
+<previous_report>
+{clean_previous_report}
+</previous_report>
+
+现在，系统获取了截至目前（{curr_time_str}）的当天【最新全量数据快照】：
+<daily_snapshot>
+{data_section}
+</daily_snapshot>
+
+**执行要求**：
+1. **对比与续写**：重点关注【{prev_time_str} 到 {curr_time_str}】的新活动。
+2. **自然融入**：将新发现融入原有日报，更新全局结论。
+3. **保持连贯**：保留原有的语气、口吻和结构，不要重写整个日报。
+4. **绝对纯净**：严禁出现“好的”、“这是更新后的”等过渡文字。"""
+
+# 最终全天结案提示词
+FINAL_SUMMARY_PROMPT_V2 = """这是今天白天生成的“直播式”过程日报：
+<process_report>
+{clean_previous_report}
+</process_report>
+
+现在今天已经结束，这是当天的【最终全量数据快照】：
+<daily_snapshot>
+{data_section}
+</daily_snapshot>
+
+**最终复盘整理要求**：
+1. **重构结案**：将零散的过程小标题（如“X点更新”）提炼为结构清晰的最终日报（如“作息复盘”、“活动画像”）。
+2. **语境转换**：消除“截至目前”等未完结语气，转为对全天的完整复盘结论。
+3. **保持沉浸**：严禁出现任何解释性文字，直接输出最终 Markdown 内容。"""
+
+# --- 原始模板保留（兼容性） ---
+INCREMENTAL_UPDATE_PROMPT = INCREMENTAL_UPDATE_PROMPT_V2
+FINAL_SUMMARY_PROMPT = FINAL_SUMMARY_PROMPT_V2
 
 # 自定义角色的输出格式要求
 CUSTOM_FORMAT_INSTRUCTIONS = """
@@ -123,17 +164,17 @@ PERSONA_TREND_GUIDANCE_UPDATE = """1. 观察趋势：从多天的数据中识别
 PERSONA_USER_PROMPT_DEFAULT = """【核心任务】：
 请仔细观察该用户的近期日常活动数据，穿透表象，推断出他在现实中的真实生活状态和隐藏属性。
 
-{data_section}
+{{data_section}}
 
 【参照档案】：
 该用户自己声称的人设背景：
-{user_claimed_persona}
+{{user_claimed_persona}}
 
 上次对他的暗中侧写档案：
-{last_inferred_persona}
+{{last_inferred_persona}}
 
 【重要要求】：
-{trend_guidance}
+{{trend_guidance}}
 2. 揭穿谎言：如果实际行为严重打脸了他"自己声称的人设"，请在侧写中毫不留情地将其标记为"假装努力"或"自欺欺人"。
 3. 高度抽象：侧写档案必须是对其性格、真实身份、生活状态的【宏观定性总结】。**绝对不允许在侧写中罗列具体日期（如"4月23日"）或具体的数据（如"用了16次"）**，你是提炼核心特征，不是在写财务报表！
 4. 严格输出格式：必须且只能输出合法的 JSON 格式。不要包含任何 markdown 代码块（如 ```json ），也不要包含任何寒暄、解释或前言后语。
@@ -149,17 +190,17 @@ JSON 格式要求如下：
 PERSONA_USER_PROMPT_CUSTOM = """【核心任务】：
 请以你的角色身份，仔细观察该用户的近期日常活动数据，穿透表象，推断出他在现实中的真实生活状态和隐藏属性。
 
-{data_section}
+{{data_section}}
 
 【参照档案】：
 该用户自己声称的人设背景：
-{user_claimed_persona}
+{{user_claimed_persona}}
 
 上次对他的暗中侧写档案：
-{last_inferred_persona}
+{{last_inferred_persona}}
 
 【重要要求】：
-{trend_guidance}
+{{trend_guidance}}
 2. 角色沉浸：**在 JSON 字段的值中，请务必全程保持你自身的角色身份、性格特点和语言风格（包含各种习惯用语和emoji），绝对不能出戏！**
 3. 对比反差：如果实际行为与他"自己声称的人设"有出入，请在侧写中用符合你人设的方式指出这种反差（比如"明明说在休息，其实接到了隐藏任务一直在忙！"）。
 4. 高度抽象：侧写档案必须是对其性格、真实身份、生活状态的【宏观定性总结】。**绝对不允许在侧写中罗列具体日期或具体的数据**，请提炼核心特征。

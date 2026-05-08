@@ -39,6 +39,11 @@ class Command(BaseCommand):
             action='store_true',
             help='Update existing report instead of deleting (use with --force to overwrite)'
         )
+        parser.add_argument(
+            '--no-events',
+            action='store_true',
+            help='Exclude important events/long-term memory from AI analysis'
+        )
 
     def handle(self, *args, **options):
         character_uid = options['character_uid']
@@ -46,6 +51,7 @@ class Command(BaseCommand):
         force = options['force']
         no_ai = options['no_ai']
         update_mode = options['update']
+        no_events = options['no_events']
 
         try:
             target_date = datetime.strptime(date_str, '%Y-%m-%d').date()
@@ -222,9 +228,13 @@ class Command(BaseCommand):
                 )
             
             previous_cutoff_time = existing_report.data_cutoff_time if (existing_report and existing_report.data_cutoff_time) else None
-            memory_context = format_events_for_prompt(
-                retrieve_important_events(character, aggregated_data)
-            )
+            
+            memory_context = ''
+            if not no_events:
+                self.stdout.write(self.style.NOTICE('Retrieving important events memory...'))
+                memory_context = format_events_for_prompt(
+                    retrieve_important_events(character, aggregated_data)
+                )
 
             analysis_result = analyze_with_llm(
                 aggregated_data, 
@@ -236,6 +246,7 @@ class Command(BaseCommand):
                 is_incremental=use_incremental,
                 previous_cutoff_time=previous_cutoff_time,
                 long_term_memory_context=memory_context,
+                include_important_events=not no_events
             )
 
             if analysis_result.get('error'):
