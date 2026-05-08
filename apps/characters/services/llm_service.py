@@ -188,12 +188,19 @@ def _extract_meta_instructions(client, model, private_blocks, data_keys=[]):
         import re
         
         try:
+            # 预处理：修复颜文字或标题中未转义的反斜杠 (例如 \ ( ) -> \\ ( ) )
+            # 这是一个简单的启发式修复：将所有反斜杠替换为双反斜杠，但要避开已经是转义的内容
+            # 为简单起见，我们直接处理最常见的干扰项
+            processed_raw = raw_result.replace('\\', '\\\\')
+            # 但是上面的操作会把本就正确的 \" 变成 \\\"，需要修正回来
+            processed_raw = processed_raw.replace('\\\\"', '\\"')
+
             # 处理可能存在的 Markdown 代码块包裹
-            json_match = re.search(r'(\{.*\})', raw_result, re.DOTALL)
+            json_match = re.search(r'(\{.*\})', processed_raw, re.DOTALL)
             if json_match:
                 result = json.loads(json_match.group(1))
             else:
-                result = json.loads(raw_result.strip())
+                result = json.loads(processed_raw.strip())
                 
             # 打印审计结果摘要
             print(f"AUDIT RESULT: Instructions({len(result.get('instructions', []))}), Redactions({len(result.get('redactions', {}))})")
