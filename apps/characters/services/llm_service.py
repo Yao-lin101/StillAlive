@@ -185,7 +185,7 @@ def _extract_meta_instructions(client, model, private_blocks, data_keys=[]):
         
         # 打印提取阶段的日志
         print("\n" + "="*30 + " [STAGE 1: AUDIT & REDACTION] " + "="*30)
-        print(f"PROMPT SENT TO LLM (Data Keys: {len(data_keys)} items)")
+        print(f"PROMPT SENT TO LLM:\n{prompt}")
 
         response = client.messages.create(
             model=model,
@@ -195,6 +195,7 @@ def _extract_meta_instructions(client, model, private_blocks, data_keys=[]):
         )
         
         raw_result = extract_text_from_anthropic_response(response)
+        print(f"RAW LLM RESPONSE:\n{raw_result}")
         
         # 尝试解析 JSON
         import json
