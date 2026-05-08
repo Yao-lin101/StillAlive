@@ -415,7 +415,8 @@ def analyze_with_llm(
             meta_instructions_section = f"""# 本次任务特殊约束 (Meta-Instructions)
 <special_constraints>
 {meta_instructions}
-</special_constraints>"""
+</special_constraints>
+**保密执行准则**：由于存在上述特殊约定，你在生成日报时，可以根据你的人设风格将这些变动或禁令比作“隐藏任务”、“秘密约定”或“私下沟通”等方式略带提及（以增加互动感）。但你必须严格遵守约束，绝对禁止在报告中泄露任何被要求保密的具体细节内容。"""
 
         system_prompt = STRUCTURED_SYSTEM_PROMPT.format(
             ai_identity_desc=ai_identity_desc,
