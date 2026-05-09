@@ -365,12 +365,19 @@ def analyze_all_modules_sequential(
                     if summary:
                         other_context += f"【{m} 模块结论】：{summary}\n"
 
+        # 如果是目标重跑模块，不传入旧的分析结果，实现“不带入旧数据”
+        is_target = target_modules and (
+            (isinstance(target_modules, str) and target_modules == mod) or
+            (isinstance(target_modules, (list, tuple)) and mod in target_modules)
+        )
+        mod_prev = None if is_target else prev_sections.get(mod)
+
         result = analyze_module_structured(
             mod,
             data_summary,
             character_name,
             persona_info,
-            previous_module_data=prev_sections.get(mod),
+            previous_module_data=mod_prev,
             meta_constraints=meta_instructions,
             long_term_memory_context=long_term_memory_context,
             other_modules_context=other_context,
