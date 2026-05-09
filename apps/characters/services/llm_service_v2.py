@@ -5,6 +5,11 @@ from django.utils import timezone
 from django.conf import settings
 from .prompts import STRUCTURED_SYSTEM_PROMPT, COMMON_ANALYSIS_RULES
 from . import prompts_v2 as pv2
+from .prompts_v2 import (
+    DEFAULT_V2_CORE_IDENTITY, 
+    DEFAULT_V2_TRAITS, 
+    DEFAULT_V2_STYLE
+)
 from .llm_service import (
     extract_text_from_anthropic_response, 
     _clean_markdown_wrapper, 
@@ -60,9 +65,9 @@ def analyze_module_structured(
 
     # 1. 准备 System Prompt
     ai_persona = persona_info.get('ai_persona') or {}
-    core_identity = ai_persona.get('core_identity') or "你是一位精准的数据分析专家。"
-    personality_traits = ai_persona.get('personality_traits') or "理性、严谨、客观。"
-    language_style = ai_persona.get('language_style') or "口语化，表达自然、流畅，保持你的角色口吻。"
+    core_identity = ai_persona.get('core_identity') or DEFAULT_V2_CORE_IDENTITY
+    personality_traits = ai_persona.get('personality_traits') or DEFAULT_V2_TRAITS
+    language_style = ai_persona.get('language_style') or DEFAULT_V2_STYLE
     
     # 注入该模块特有的 Format Instructions
     format_instr_map = {
