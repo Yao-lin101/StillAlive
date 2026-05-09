@@ -195,25 +195,51 @@ def analyze_module_structured(
                 group_list.extend(m_data)
 
         if private_list:
-            chat_section += "## 私人聊天话题\n"
+            chat_section += "## 私人聊天内容\n"
             for item in private_list:
                 time_str = item.get('时间') or '未知时间'
-                topic = item.get('话题') or '无话题'
-                summary = item.get('总结') or '无总结'
-                chat_section += f"- [{time_str}] 话题: {topic} | 总结: {summary}\n"
+                chat_section += f"[{time_str}]\n"
+                
+                # 1. 话题与总结
+                topic = item.get('话题')
+                summary = item.get('总结')
+                if topic: chat_section += f"话题: {topic}\n"
+                if summary: chat_section += f"总结: {summary}\n"
+                
+                # 2. 对话细节
+                user_msg = item.get('用户')
+                bot_msg = item.get('你的回复')
+                if user_msg:
+                    chat_section += f"用户: {user_msg}\n"
+                if bot_msg:
+                    # 截断过长的机器人回复
+                    if len(bot_msg) > 100:
+                        lines = bot_msg.split('\n')
+                        truncated = lines[0] + '...' if lines else bot_msg[:50] + '...'
+                        chat_section += f"你: {truncated}\n"
+                    else:
+                        chat_section += f"你: {bot_msg}\n"
+                chat_section += "\n"
         
         if group_list:
-            chat_section += "\n## 群聊话题总结\n"
+            chat_section += "\n## 群聊内容总结\n"
             # 按群组聚合
             groups = {}
             for item in group_list:
                 g_name = item.get('群名称') or '未知群聊'
-                if g_name not in groups: groups[g_name] = []
-                groups[g_name].append(item)
+                if g_name not in groups: 
+                    groups[g_name] = {
+                        'bot_nickname': item.get('你在本群昵称', '未知'),
+                        'user_nickname': item.get('用户在本群昵称', '未知'),
+                        'topics': []
+                    }
+                groups[g_name]['topics'].append(item)
             
-            for g_name, topics in groups.items():
+            for g_name, info in groups.items():
                 chat_section += f"### 【{g_name}】\n"
-                for t in topics:
+                chat_section += f"- 你的群昵称: {info['bot_nickname']}\n"
+                chat_section += f"- 用户的群昵称: {info['user_nickname']}\n\n"
+                for t in info['topics']:
                     time_str = t.get('时间') or '未知时间'
                     summary = t.get('话题总结') or t.get('总结') or '无总结'
                     chat_section += f"#### [{time_str}]\n{summary}\n\n"
