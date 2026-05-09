@@ -493,11 +493,20 @@ def analyze_all_modules_sequential(
                     **mod_extra_meta
                 }
         else:
-            new_sections[mod] = {
-                "status": "error",
-                "error": result["error"],
-                "updated_at": timezone.now().isoformat()
-            }
+            # --- 数据保护逻辑：增量更新失败时不覆盖旧数据 ---
+            if mod in prev_sections and prev_sections[mod].get('status') == 'done':
+                logger.warning(f"Module {mod} update failed, preserving previous data. Error: {result['error']}")
+                # 维持旧数据，仅记录错误信息并更新时间戳
+                new_sections[mod] = prev_sections[mod].copy()
+                new_sections[mod]['last_error'] = result["error"]
+                new_sections[mod]['updated_at'] = timezone.now().isoformat()
+            else:
+                # 仅在无旧数据可用的情况下（如首次生成）才记录为 error 状态
+                new_sections[mod] = {
+                    "status": "error",
+                    "error": result["error"],
+                    "updated_at": timezone.now().isoformat()
+                }
 
         # 增量回调：每完成一个模块就通知调用方
         if on_module_complete:
