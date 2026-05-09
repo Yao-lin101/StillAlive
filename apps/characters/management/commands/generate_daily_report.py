@@ -45,6 +45,12 @@ class Command(BaseCommand):
             action='store_true',
             help='Exclude important events/long-term memory from AI analysis'
         )
+        parser.add_argument(
+            '--module', '-m',
+            type=str,
+            choices=['title_summary', 'schedule', 'activity', 'findings', 'chat'],
+            help='Regenerate only a specific module'
+        )
 
     def handle(self, *args, **options):
         character_uid = options['character_uid']
@@ -53,6 +59,7 @@ class Command(BaseCommand):
         no_ai = options['no_ai']
         update_mode = options['update']
         no_events = options['no_events']
+        target_module = options['module']
 
         try:
             target_date = datetime.strptime(date_str, '%Y-%m-%d').date()
@@ -244,12 +251,19 @@ class Command(BaseCommand):
                 "system_inferred_persona": config.system_inferred_persona
             }
 
+            # 如果指定了目标模块，必须传入现有结果作为基础
+            prev_analysis = None
+            if existing_report:
+                if target_module or update_mode:
+                    prev_analysis = existing_report.analysis_result
+
             analysis_result = analyze_all_modules_sequential(
                 aggregated_data,
                 character.name,
                 persona_info,
-                previous_analysis_result=existing_report.analysis_result if (update_mode and existing_report) else None,
-                long_term_memory_context=memory_context
+                previous_analysis_result=prev_analysis,
+                long_term_memory_context=memory_context,
+                target_module=target_module
             )
 
             if analysis_result.get('error'):

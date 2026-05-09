@@ -204,10 +204,12 @@ def analyze_all_modules_sequential(
     character_name,
     persona_info,
     previous_analysis_result=None,
-    long_term_memory_context=None
+    long_term_memory_context=None,
+    target_module=None
 ):
     """
     顺序执行所有模块分析（V2 版本的核心入口）
+    支持 target_module 参数，用于仅重新生成特定模块
     """
     # 预处理：从 aggregated_data 提取 meta 信息
     data_summary = aggregated_data # 假设结构一致
@@ -223,6 +225,11 @@ def analyze_all_modules_sequential(
     modules = ['title_summary', 'schedule', 'activity', 'chat', 'findings']
     
     for mod in modules:
+        # 如果指定了目标模块且当前不是目标模块，则跳过
+        if target_module and mod != target_module:
+            logger.info(f"Skipping module {mod} (target is {target_module})")
+            continue
+
         logger.info(f"Analyzing module: {mod}")
         
         # 增加跳过逻辑：如果模块是 chat 且没有聊天数据，直接跳过
