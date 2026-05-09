@@ -277,12 +277,12 @@ def analyze_all_modules_sequential(
     persona_info,
     previous_analysis_result=None,
     long_term_memory_context=None,
-    target_module=None,
+    target_modules=None,
     on_module_complete=None
 ):
     """
     顺序执行所有模块分析（V2 版本的核心入口）
-    支持 target_module 参数，用于仅重新生成特定模块
+    支持 target_modules 参数，可以是字符串或列表，用于仅重新生成特定模块
     """
     # 预处理：从 aggregated_data 提取 meta 信息
     data_summary = aggregated_data 
@@ -320,10 +320,12 @@ def analyze_all_modules_sequential(
     modules = ['schedule', 'activity', 'findings', 'chat', 'title_summary']
     
     for mod in modules:
-        # 如果指定了目标模块且当前不是目标模块，则跳过
-        if target_module and mod != target_module:
-            logger.info(f"Skipping module {mod} (target is {target_module})")
-            continue
+        # 如果指定了 target_modules 且不是当前模块，则跳过
+        if target_modules:
+            if isinstance(target_modules, str) and target_modules != mod:
+                continue
+            if isinstance(target_modules, (list, tuple)) and mod not in target_modules:
+                continue
 
         logger.info(f"Analyzing module: {mod}")
         

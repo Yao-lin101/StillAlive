@@ -48,8 +48,9 @@ class Command(BaseCommand):
         parser.add_argument(
             '--module', '-m',
             type=str,
+            nargs='+',
             choices=['title_summary', 'schedule', 'activity', 'findings', 'chat'],
-            help='Regenerate only a specific module'
+            help='Regenerate only specific modules (can specify multiple)'
         )
 
     def handle(self, *args, **options):
@@ -225,6 +226,8 @@ class Command(BaseCommand):
                 )
             )
             
+            target_modules = options['module']
+            
             use_incremental = update_mode and existing_report is not None
             previous_report = existing_report.analysis_result.get('markdown', '') if (update_mode and existing_report and existing_report.analysis_result) else ''
             
@@ -254,7 +257,7 @@ class Command(BaseCommand):
             # 如果指定了目标模块，必须传入现有结果作为基础
             prev_analysis = None
             if existing_report:
-                if target_module or update_mode:
+                if target_modules or update_mode:
                     prev_analysis = existing_report.analysis_result
             else:
                 # 如果是新日报，先创建一个占位记录，以便支持增量保存展示
@@ -281,7 +284,7 @@ class Command(BaseCommand):
                 persona_info,
                 previous_analysis_result=prev_analysis,
                 long_term_memory_context=memory_context,
-                target_module=target_module,
+                target_modules=target_modules,
                 on_module_complete=on_module_complete_callback
             )
 
