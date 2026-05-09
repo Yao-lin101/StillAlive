@@ -42,13 +42,13 @@ EVENT_EXTRACTION_USER_PROMPT = """请从下面这一天的数据中抽取 0-6 �
 2. 必须能从客观数据中找到证据。
 3. 普通应用使用、普通步数、没有明显模式的一天，不要强行抽取。
 4. 敏感聊天内容要概括，不要复制大段原文。
-5. 如果日报中出现对未来日报很有用的 AI 关系、角色设定、系统上线、互动默契、特殊纪念日等信息，也可以抽取为长期事件；这类事件的 evidence 必须说明来自日报辅助摘要或聊天记录。
+5. 请结合【目标人物档案】来判断事件的重要性。
 
 输出要求：
 只输出 JSON 数组，不要 Markdown，不要解释。数组元素字段如下：
 [
   {{
-    "event_key": "稳定短 key，英文小写/数字/下划线，建议含类型和时间",
+    "event_key": "稳定短 key，英文小写/数字/下划线，建议含类型 and 时间",
     "title": "不超过 20 字的事件标题",
     "summary": "1句客观摘要（不超过 40 字）",
     "event_type": "work_focus|sleep_pattern|social|health|travel|milestone|anomaly|entertainment|ai_relationship|system_milestone|other",
@@ -61,14 +61,12 @@ EVENT_EXTRACTION_USER_PROMPT = """请从下面这一天的数据中抽取 0-6 �
   }}
 ]
 
-日报文字只作为辅助，不可覆盖原始数据事实。
+目标人物档案：
+{persona_context}
 
 日期：{date}
 客观活动聚合数据 JSON：
 {raw_data}
-
-辅助日报摘要：
-{daily_markdown}
 """
 
 
@@ -96,12 +94,12 @@ QUERY_REWRITE_USER_PROMPT = """请基于下面这一天的完整数据，生成�
   "event_types": ["work_focus|sleep_pattern|social|health|travel|milestone|anomaly|entertainment|ai_relationship|system_milestone|other"]
 }}
 
+目标人物档案：
+{persona_context}
+
 日期：{date}
 客观活动聚合数据 JSON：
 {raw_data}
-
-辅助日报摘要：
-{daily_markdown}
 """
 
 
@@ -152,12 +150,8 @@ def _safe_event_key(event, report):
 
 
 def _source_hash(report):
-    markdown = ''
-    if report.analysis_result and isinstance(report.analysis_result, dict):
-        markdown = report.analysis_result.get('markdown', '') or ''
     source = {
         'raw_data': report.raw_data or {},
-        'markdown': markdown,
     }
     return hashlib.sha256(_json_dumps(source).encode('utf-8')).hexdigest()
 
@@ -282,6 +276,17 @@ def extract_important_events_for_report(report, force=False):
         logger.warning("Anthropic API key not configured, skip important event extraction")
         return {'created': 0, 'updated': 0, 'skipped': True, 'reason': 'anthropic_not_configured'}
 
+    # 获取人设信息作为辅助上下文
+    try:
+        config = report.character.daily_report_config
+        persona = config.persona or "无"
+        system_inferred_persona = config.system_inferred_persona or "尚无深度侧写"
+    except Exception:
+        persona = "无"
+        system_inferred_persona = "无"
+    
+    persona_context = f"- 用户自述人设: {persona}\n- 系统侧写档案: {system_inferred_persona}"
+
     model = getattr(settings, 'ANTHROPIC_MODEL', 'claude-3-5-sonnet-20241022')
     markdown = ''
     if report.analysis_result and isinstance(report.analysis_result, dict):
@@ -290,7 +295,7 @@ def extract_important_events_for_report(report, force=False):
     prompt = EVENT_EXTRACTION_USER_PROMPT.format(
         date=report.date.isoformat(),
         raw_data=_json_dumps(report.raw_data),
-        daily_markdown=markdown or '（无）',
+        persona_context=persona_context,
     )
 
     response = client.messages.create(
@@ -657,11 +662,22 @@ def _rewrite_retrieval_query_with_llm(character, aggregated_data):
     model = getattr(settings, 'ANTHROPIC_MODEL', 'claude-3-5-sonnet-20241022')
     max_tokens = int(getattr(settings, 'IMPORTANT_EVENT_QUERY_REWRITE_MAX_TOKENS', 512))
 
+    # 获取人设信息作为辅助上下文
+    try:
+        config = character.daily_report_config
+        persona = config.persona or "无"
+        system_inferred_persona = config.system_inferred_persona or "尚无深度侧写"
+    except Exception:
+        persona = "无"
+        system_inferred_persona = "无"
+    
+    persona_context = f"- 用户自述人设: {persona}\n- 系统侧写档案: {system_inferred_persona}"
+
     # Query rewrite can use the full data because it is a short, final-summary-only LLM call.
     prompt = QUERY_REWRITE_USER_PROMPT.format(
         date=aggregated_data.get('date', ''),
         raw_data=_json_dumps(aggregated_data),
-        daily_markdown='（无，当前任务发生在最终日报生成前）',
+        persona_context=persona_context,
     )
 
     try:
