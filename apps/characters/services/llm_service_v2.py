@@ -133,14 +133,19 @@ def analyze_module_structured(
 
     existing_section = ""
     if module_key == 'schedule':
-        # 提取已锁定的 slots
+        # 提取已锁定的 slots (排除最后一位未锁定的)
         prev_data = previous_module_data or {}
-        locked_slots = [s for s in prev_data.get('slots', []) if s.get('locked')]
-        # 计算哪些是新时段（简单逻辑：当前数据中有但 locked_slots 中没有的）
-        # 这里简单化处理，由 LLM 判断
+        all_slots = prev_data.get('slots', [])
+        locked_slots = []
+        for s in all_slots:
+            if s.get('locked'):
+                # 注入提示词时移除 locked 标记以减少干扰
+                s_copy = s.copy()
+                s_copy.pop('locked', None)
+                locked_slots.append(s_copy)
+        
         existing_section = pv2.SCHEDULE_EXISTING_SLOTS_TEMPLATE.format(
-            locked_slots_json=json.dumps(locked_slots, ensure_ascii=False, indent=2),
-            new_slots_list="请基于快照中的 active_time_ranges 识别新时段"
+            locked_slots_json=json.dumps(locked_slots, ensure_ascii=False, indent=2)
         )
         user_prompt = pv2.SCHEDULE_USER_PROMPT.format(
             character_name=character_name,
@@ -149,10 +154,16 @@ def analyze_module_structured(
         )
     elif module_key == 'activity':
         prev_data = previous_module_data or {}
-        locked_slots = [s for s in prev_data.get('slots', []) if s.get('locked')]
+        all_slots = prev_data.get('slots', [])
+        locked_slots = []
+        for s in all_slots:
+            if s.get('locked'):
+                s_copy = s.copy()
+                s_copy.pop('locked', None)
+                locked_slots.append(s_copy)
+        
         existing_section = pv2.SCHEDULE_EXISTING_SLOTS_TEMPLATE.format( # 复用模板
-            locked_slots_json=json.dumps(locked_slots, ensure_ascii=False, indent=2),
-            new_slots_list="请基于快照中的 App 使用时段识别新时段"
+            locked_slots_json=json.dumps(locked_slots, ensure_ascii=False, indent=2)
         )
         user_prompt = pv2.ACTIVITY_USER_PROMPT.format(
             character_name=character_name,
@@ -161,10 +172,17 @@ def analyze_module_structured(
         )
     elif module_key == 'findings':
         prev_data = previous_module_data or {}
-        locked_slots = [s for s in prev_data.get('slots', []) if s.get('locked')]
+        all_slots = prev_data.get('slots', [])
+        # 发现模块全量注入已锁定的发现，防止重复
+        locked_slots = []
+        for s in all_slots:
+            if s.get('locked'):
+                s_copy = s.copy()
+                s_copy.pop('locked', None)
+                locked_slots.append(s_copy)
+
         existing_section = pv2.SCHEDULE_EXISTING_SLOTS_TEMPLATE.format(
-            locked_slots_json=json.dumps(locked_slots, ensure_ascii=False, indent=2),
-            new_slots_list="请挖掘今日全量数据中的新发现或有趣时段"
+            locked_slots_json=json.dumps(locked_slots, ensure_ascii=False, indent=2)
         )
         user_prompt = pv2.FINDINGS_USER_PROMPT.format(
             character_name=character_name,
@@ -172,13 +190,16 @@ def analyze_module_structured(
             existing_slots_section=existing_section
         )
     elif module_key == 'chat':
-        # 这里比较特殊，需要过滤出新的聊天记录
-        # 简单起见，目前先传全量，让 LLM 根据已有的 items 进行去重
+        # 聊天模块增量更新，注入已分析的话题
         prev_data = previous_module_data or {}
-        locked_items = prev_data.get('items', [])
+        all_items = prev_data.get('items', [])
+        locked_items = []
+        for item in all_items:
+            # 聊天记录默认入库即锁定
+            locked_items.append(item)
+            
         existing_section = pv2.CHAT_EXISTING_ITEMS_TEMPLATE.format(
-            locked_items_json=json.dumps(locked_items, ensure_ascii=False, indent=2),
-            new_topics_list="请分析快照中新增的消息块"
+            locked_items_json=json.dumps(locked_items, ensure_ascii=False, indent=2)
         )
         # 提取聊天部分的数据（支持嵌套的消息块结构）
         chat_section = ""
@@ -412,28 +433,65 @@ def analyze_all_modules_sequential(
         )
         
         if "error" not in result:
-            # 标记为 done 并保存内容
-            # 对于 schedule/activity，我们需要自动锁定过去的时段
-            if mod in ['schedule', 'activity']:
-                slots = result.get('slots', [])
-                # 简单逻辑：如果时段已经过去 1 小时，标记为 locked
-                # 实际生产中可能需要更精确的逻辑
-                for s in slots:
-                    # 如果 LLM 没有标记 locked，我们可以根据时间戳尝试标记
-                    pass
+            # --- 增量合并与锁定逻辑 ---
+            prev_mod_data = prev_sections.get(mod) or {}
             
-            new_sections[mod] = {
-                "status": "done",
-                "content": result.get('content'), # 针对 findings/title/summary
-                "title": result.get('title'),
-                "summary": result.get('summary'),
-                "overall": result.get('overall'),
-                "slots": result.get('slots'),
-                "items": result.get('items'),
-                "finding_keys": result.get('finding_keys'),
-                "updated_at": timezone.now().isoformat(),
-                **mod_extra_meta # 注入额外元数据（如 _msg_count）
-            }
+            if mod in ['schedule', 'activity', 'findings']:
+                # 提取之前已锁定的
+                final_slots = [s for s in prev_mod_data.get('slots', []) if s.get('locked')]
+                # 获取 LLM 返回的新 slots (V2 推荐使用 new_slots 字段，兼容旧版 slots)
+                new_slots = result.get('new_slots') or result.get('slots') or []
+                
+                if isinstance(new_slots, list):
+                    # 合并
+                    final_slots.extend(new_slots)
+                    
+                    # 应用锁定规则
+                    if mod in ['schedule', 'activity']:
+                        # 除了最后一个，全部锁定
+                        for i, s in enumerate(final_slots):
+                            s['locked'] = (i < len(final_slots) - 1)
+                    else: # findings
+                        # 全部锁定
+                        for s in final_slots:
+                            s['locked'] = True
+                
+                new_sections[mod] = {
+                    "status": "done",
+                    "overall": result.get('overall') or prev_mod_data.get('overall'),
+                    "slots": final_slots,
+                    "updated_at": timezone.now().isoformat(),
+                    **mod_extra_meta
+                }
+                # 发现模块额外处理关键词
+                if mod == 'findings':
+                    old_keys = prev_mod_data.get('finding_keys', [])
+                    new_keys = result.get('new_finding_keys') or result.get('finding_keys') or []
+                    new_sections[mod]['finding_keys'] = list(set(old_keys + new_keys))
+
+            elif mod == 'chat':
+                final_items = prev_mod_data.get('items', []) # 聊天记录默认都是锁定的
+                new_items = result.get('new_items') or result.get('items') or []
+                
+                if isinstance(new_items, list):
+                    final_items.extend(new_items)
+                
+                new_sections[mod] = {
+                    "status": "done",
+                    "overall": result.get('overall') or prev_mod_data.get('overall'),
+                    "items": final_items,
+                    "updated_at": timezone.now().isoformat(),
+                    **mod_extra_meta
+                }
+
+            else: # title_summary
+                new_sections[mod] = {
+                    "status": "done",
+                    "title": result.get('title') or prev_mod_data.get('title'),
+                    "summary": result.get('summary') or prev_mod_data.get('summary'),
+                    "updated_at": timezone.now().isoformat(),
+                    **mod_extra_meta
+                }
         else:
             new_sections[mod] = {
                 "status": "error",
