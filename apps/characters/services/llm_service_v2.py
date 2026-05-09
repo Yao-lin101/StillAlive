@@ -293,13 +293,29 @@ def analyze_all_modules_sequential(
         logger.info(f"Analyzing module: {mod}")
         
         # 增加跳过逻辑：如果模块是 chat 且没有聊天数据，直接跳过
-        if mod == 'chat' and not data_summary.get('qq_messages'):
-            logger.info("No chat data found, skipping 'chat' module.")
-            new_sections[mod] = {
-                "status": "skipped",
-                "updated_at": timezone.now().isoformat()
-            }
-            continue
+        if mod == 'chat':
+            messages = data_summary.get('qq_messages', [])
+            if not messages:
+                logger.info("No chat data found, skipping 'chat' module.")
+                new_sections[mod] = {
+                    "status": "skipped",
+                    "updated_at": timezone.now().isoformat()
+                }
+                continue
+            
+            # 增量检测：如果消息总数没变，且之前已经分析完成，则跳过
+            prev_chat = prev_sections.get('chat', {})
+            current_msg_count = sum(len(b.get('message_data', [])) for b in messages)
+            if prev_chat.get('status') == 'done' and prev_chat.get('_msg_count') == current_msg_count:
+                logger.info(f"Chat data unchanged (count: {current_msg_count}), skipping re-analysis.")
+                continue
+            
+            # 准备在新 section 中记录当前消息数
+            # 注意：这里先标记，实际数据在分析后存入
+            # 但为了逻辑一致性，我们在分析前记录
+            mod_extra_meta = {'_msg_count': current_msg_count}
+        else:
+            mod_extra_meta = {}
 
         # 构建上下文
         other_context = ""
@@ -343,7 +359,8 @@ def analyze_all_modules_sequential(
                 "slots": result.get('slots'),
                 "items": result.get('items'),
                 "finding_keys": result.get('finding_keys'),
-                "updated_at": timezone.now().isoformat()
+                "updated_at": timezone.now().isoformat(),
+                **mod_extra_meta # 注入额外元数据（如 _msg_count）
             }
         else:
             new_sections[mod] = {
