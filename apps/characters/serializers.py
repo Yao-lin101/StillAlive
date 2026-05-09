@@ -252,6 +252,7 @@ class DailyReportSerializer(serializers.ModelSerializer):
 class DailyReportDetailSerializer(serializers.ModelSerializer):
     markdown = serializers.SerializerMethodField()
     error = serializers.SerializerMethodField()
+    report_data = serializers.SerializerMethodField()
 
     class Meta:
         model = DailyReport
@@ -259,7 +260,8 @@ class DailyReportDetailSerializer(serializers.ModelSerializer):
             'date',
             'is_hidden',
             'markdown',
-            'error'
+            'error',
+            'report_data',
         ]
 
     def get_markdown(self, obj):
@@ -271,3 +273,14 @@ class DailyReportDetailSerializer(serializers.ModelSerializer):
         if obj.analysis_result and isinstance(obj.analysis_result, dict):
             return obj.analysis_result.get('error')
         return None
+
+    def get_report_data(self, obj):
+        """生成结构化HTML报告数据（图表数据 + LLM评论）"""
+        try:
+            from .services.html_report_service import build_report_data
+            raw_data = obj.raw_data or {}
+            analysis_result = obj.analysis_result or {}
+            return build_report_data(raw_data, analysis_result)
+        except Exception as e:
+            logger.error(f"Failed to build report_data for report {obj.id}: {e}")
+            return {}

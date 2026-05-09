@@ -4,6 +4,7 @@ from datetime import date, datetime, timedelta
 from apps.characters.models import Character, DailyReportConfig, DailyReport
 from apps.characters.services.data_service import aggregate_status_data
 from apps.characters.services.llm_service import analyze_with_llm
+from apps.characters.services.llm_service_v2 import analyze_all_modules_sequential
 from apps.characters.services.important_event_service import format_events_for_prompt, retrieve_important_events
 import logging
 
@@ -236,17 +237,19 @@ class Command(BaseCommand):
                     retrieve_important_events(character, aggregated_data)
                 )
 
-            analysis_result = analyze_with_llm(
-                aggregated_data, 
-                character.name, 
-                config.persona, 
-                config.ai_persona, 
-                config.system_inferred_persona,
-                previous_report=previous_report,
-                is_incremental=use_incremental,
-                previous_cutoff_time=previous_cutoff_time,
-                long_term_memory_context=memory_context,
-                include_important_events=not no_events
+            # 准备人设信息
+            persona_info = {
+                "persona": config.persona,
+                "ai_persona": config.ai_persona,
+                "system_inferred_persona": config.system_inferred_persona
+            }
+
+            analysis_result = analyze_all_modules_sequential(
+                aggregated_data,
+                character.name,
+                persona_info,
+                previous_analysis_result=existing_report.analysis_result if (update_mode and existing_report) else None,
+                long_term_memory_context=memory_context
             )
 
             if analysis_result.get('error'):
