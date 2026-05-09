@@ -76,24 +76,28 @@ V2_STRUCTURED_SYSTEM_PROMPT = """# 你的角色人设 (Persona)
 # ══════════════════════════════════════════════════════════════════
 
 TITLE_SUMMARY_FORMAT_INSTRUCTIONS = """
-## 当前任务：生成【标题】与【整体总结】
+## 当前任务：生成【最终总结】（日报标题与开篇引言）
 
-请根据今日全量数据快照，生成以下内容：
-- **标题**：2-6字，今日状态的精髓提炼，保持你的角色风格
-- **整体总结**：2-4句话，对今天整体状态的锐评，作为日报的引言
+请结合【今日数据摘要】以及【已生成的各模块分析结论】，为这一天定性。
+
+**执行要求**：
+1. **标题**：2-6字，要能高度概括今日的核心特征或最具代表性的事件，保持角色风格。
+2. **整体总结 (summary)**：2-4句话，作为全文的引言，需巧妙融合之前模块（作息、活动、发现、聊天）的关键发现，给出一个富有洞察力的终极锐评。
 
 输出 JSON 格式：
 {{
-  "title": "...",
-  "summary": "..."
+  "title": "今日标题",
+  "summary": "最终总结引言"
 }}
 """ + _JSON_STRICT
 
-TITLE_SUMMARY_USER_PROMPT = """请根据以下今日数据快照，为用户 {character_name} 生成【标题】与【整体总结】：
+TITLE_SUMMARY_USER_PROMPT = """请根据以下数据快照及已有的模块结论，为用户 {character_name} 生成【最终总结】：
 
-<daily_snapshot>
+<daily_snapshot_summary>
 {data_section}
-</daily_snapshot>
+</daily_snapshot_summary>
+
+{other_modules_section}
 
 {memory_section}
 """
@@ -190,26 +194,35 @@ ACTIVITY_USER_PROMPT = """请根据以下今日 App 使用数据，为用户 {ch
 FINDINGS_FORMAT_INSTRUCTIONS = """
 ## 当前任务：生成【有趣发现】
 
-寻找今日数据中的反常行为、意外规律或值得锐评的细节。
+寻找今日全量数据中的反常行为、意外规律或值得锐评的细节。
 
-**规则**：
-- 如果提供了【已有发现关键词】，不要重复这些已经指出过的发现
-- 如果没有新发现，finding_keys 返回空列表，content 写"今日无特别异常，平稳度过"
+**执行要求**：
+1. **内容形式**：采用“时段点评”形式。针对发现有趣细节的具体时间段生成评论。
+2. **内容深度**：不要只看 App 名，要结合步数、时间点、应用切换频率等全量数据，挖掘背后的“人性”或“槽点”。
+3. **状态保留**：已标记为 locked=true 的时段评论**禁止修改**。
+4. **整体发现 (overall)**：对今日最亮眼的 1-2 个发现进行总结。
 
 输出 JSON 格式：
 {{
-  "content": "有趣发现的评述（1-3句，可以是多个发现的组合）",
+  "overall": "今日最有趣的 1-2 个核心发现总结",
+  "slots": [
+    {{
+      "range": "HH:MM-HH:MM",
+      "comment": "对该时段有趣/异常细节的发现与锐评",
+      "locked": true
+    }}
+  ],
   "finding_keys": ["关键词1", "关键词2"]
 }}
 """ + _JSON_STRICT
 
-FINDINGS_USER_PROMPT = """请根据以下今日数据快照，为用户 {character_name} 挖掘【有趣发现】：
+FINDINGS_USER_PROMPT = """请根据以下今日全量数据快照，为用户 {character_name} 挖掘【有趣发现】：
 
 <daily_snapshot>
 {data_section}
 </daily_snapshot>
 
-{existing_findings_section}
+{existing_slots_section}
 
 {other_modules_section}
 """

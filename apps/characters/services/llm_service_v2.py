@@ -39,7 +39,8 @@ def analyze_module_structured(
     previous_module_data=None,
     meta_constraints=None,
     long_term_memory_context=None,
-    other_modules_context=None
+    other_modules_context=None,
+    compact_mode=False
 ):
     """
     单模块结构化分析核心函数
@@ -113,7 +114,8 @@ def analyze_module_structured(
         is_day_ended=False, 
         include_system_prompt=False,
         exclude_apps=exclude_apps,
-        exclude_steps_and_ranges=exclude_steps_and_ranges
+        exclude_steps_and_ranges=exclude_steps_and_ranges,
+        compact_mode=compact_mode
     )
 
     existing_section = ""
@@ -146,15 +148,16 @@ def analyze_module_structured(
         )
     elif module_key == 'findings':
         prev_data = previous_module_data or {}
-        keys = prev_data.get('finding_keys', [])
-        existing_section = pv2.FINDINGS_EXISTING_TEMPLATE.format(
-            finding_keys=", ".join(keys) if keys else "无"
+        locked_slots = [s for s in prev_data.get('slots', []) if s.get('locked')]
+        existing_section = pv2.SCHEDULE_EXISTING_SLOTS_TEMPLATE.format(
+            locked_slots_json=json.dumps(locked_slots, ensure_ascii=False, indent=2),
+            new_slots_list="请挖掘今日全量数据中的新发现或有趣时段"
         )
         user_prompt = pv2.FINDINGS_USER_PROMPT.format(
             character_name=character_name,
             data_section=data_section,
-            existing_findings_section=existing_section,
-            other_modules_section=f"\n# 其他模块分析结论\n{other_modules_context}" if other_modules_context else ""
+            existing_slots_section=existing_section,
+            other_modules_section=f"\n# 已有模块分析结论（供参考）\n{other_modules_context}" if other_modules_context else ""
         )
     elif module_key == 'chat':
         # 这里比较特殊，需要过滤出新的聊天记录
@@ -165,10 +168,43 @@ def analyze_module_structured(
             locked_items_json=json.dumps(locked_items, ensure_ascii=False, indent=2),
             new_topics_list="请分析快照中新增的消息块"
         )
-        # 提取聊天部分的数据
+        # 提取聊天部分的数据（支持嵌套的消息块结构）
         chat_section = ""
-        for msg in data_summary.get('qq_messages', []):
-             chat_section += f"[{msg.get('time')}] {msg.get('message_type')}: {msg.get('summary', '')}\n"
+        qq_messages = data_summary.get('qq_messages', [])
+        
+        private_list = []
+        group_list = []
+        for block in qq_messages:
+            m_type = block.get('message_type')
+            m_data = block.get('message_data', [])
+            if m_type == 'private':
+                private_list.extend(m_data)
+            elif m_type == 'group':
+                group_list.extend(m_data)
+
+        if private_list:
+            chat_section += "## 私人聊天话题\n"
+            for item in private_list:
+                time_str = item.get('时间') or '未知时间'
+                topic = item.get('话题') or '无话题'
+                summary = item.get('总结') or '无总结'
+                chat_section += f"- [{time_str}] 话题: {topic} | 总结: {summary}\n"
+        
+        if group_list:
+            chat_section += "\n## 群聊话题总结\n"
+            # 按群组聚合
+            groups = {}
+            for item in group_list:
+                g_name = item.get('群名称') or '未知群聊'
+                if g_name not in groups: groups[g_name] = []
+                groups[g_name].append(item)
+            
+            for g_name, topics in groups.items():
+                chat_section += f"### 【{g_name}】\n"
+                for t in topics:
+                    time_str = t.get('时间') or '未知时间'
+                    summary = t.get('话题总结') or t.get('总结') or '无总结'
+                    chat_section += f"#### [{time_str}]\n{summary}\n\n"
         
         user_prompt = pv2.CHAT_USER_PROMPT.format(
             character_name=character_name,
@@ -179,6 +215,7 @@ def analyze_module_structured(
         user_prompt = pv2.TITLE_SUMMARY_USER_PROMPT.format(
             character_name=character_name,
             data_section=data_section,
+            other_modules_section=f"\n# 各模块分析结论汇聚\n{other_modules_context}" if other_modules_context else "",
             memory_section=f"\n# 长期记忆/历史背景\n{long_term_memory_context}" if long_term_memory_context else ""
         )
 
@@ -233,8 +270,8 @@ def analyze_all_modules_sequential(
     # 初始化新的 sections
     new_sections = prev_sections.copy()
     
-    # 模块列表 (findings 放在最后，以便参考之前的分析)
-    modules = ['title_summary', 'schedule', 'activity', 'chat', 'findings']
+    # 模块列表 (按照用户要求的优化顺序)
+    modules = ['schedule', 'activity', 'findings', 'chat', 'title_summary']
     
     for mod in modules:
         # 如果指定了目标模块且当前不是目标模块，则跳过
@@ -253,12 +290,21 @@ def analyze_all_modules_sequential(
             }
             continue
 
-        # 构建上下文：给 findings 提供之前的总结
+        # 构建上下文
         other_context = ""
         if mod == 'findings':
+            # 有趣发现参考之前的作息和活动画像
             for m in ['schedule', 'activity']:
                 if m in new_sections and new_sections[m].get('status') == 'done':
                     summary = new_sections[m].get('overall') or new_sections[m].get('summary')
+                    if summary:
+                        other_context += f"【{m} 模块结论】：{summary}\n"
+        elif mod == 'title_summary':
+            # 最终总结参考所有已生成的模块
+            for m in ['schedule', 'activity', 'findings', 'chat']:
+                if m in new_sections and new_sections[m].get('status') == 'done':
+                    # 尝试获取最能代表该模块结论的字段
+                    summary = new_sections[m].get('overall') or new_sections[m].get('summary') or new_sections[m].get('content')
                     if summary:
                         other_context += f"【{m} 模块结论】：{summary}\n"
 
@@ -269,7 +315,8 @@ def analyze_all_modules_sequential(
             persona_info,
             previous_module_data=prev_sections.get(mod),
             long_term_memory_context=long_term_memory_context,
-            other_modules_context=other_context
+            other_modules_context=other_context,
+            compact_mode=(mod == 'title_summary')
         )
         
         if "error" not in result:
