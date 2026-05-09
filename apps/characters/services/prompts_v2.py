@@ -214,8 +214,6 @@ FINDINGS_USER_PROMPT = """请根据以下今日全量数据快照，为用户 {c
 </daily_snapshot>
 
 {existing_slots_section}
-
-{other_modules_section}
 """
 
 FINDINGS_EXISTING_TEMPLATE = """

@@ -168,8 +168,7 @@ def analyze_module_structured(
         user_prompt = pv2.FINDINGS_USER_PROMPT.format(
             character_name=character_name,
             data_section=data_section,
-            existing_slots_section=existing_section,
-            other_modules_section=f"\n# 已有模块分析结论（供参考）\n{other_modules_context}" if other_modules_context else ""
+            existing_slots_section=existing_section
         )
     elif module_key == 'chat':
         # 这里比较特殊，需要过滤出新的聊天记录
@@ -304,14 +303,7 @@ def analyze_all_modules_sequential(
 
         # 构建上下文
         other_context = ""
-        if mod == 'findings':
-            # 有趣发现参考之前的作息和活动画像
-            for m in ['schedule', 'activity']:
-                if m in new_sections and new_sections[m].get('status') == 'done':
-                    summary = new_sections[m].get('overall') or new_sections[m].get('summary')
-                    if summary:
-                        other_context += f"【{m} 模块结论】：{summary}\n"
-        elif mod == 'title_summary':
+        if mod == 'title_summary':
             # 最终总结参考所有已生成的模块
             for m in ['schedule', 'activity', 'findings', 'chat']:
                 if m in new_sections and new_sections[m].get('status') == 'done':
