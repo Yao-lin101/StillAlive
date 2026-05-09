@@ -284,6 +284,7 @@ def generate_daily_reports(self):
                         character.name,
                         persona_info,
                         previous_analysis_result=existing_report.analysis_result,
+                        long_term_memory_context=memory_context,
                         on_module_complete=on_module_complete_callback
                     )
                     
@@ -343,6 +344,7 @@ def generate_daily_reports(self):
                         character.name,
                         persona_info,
                         previous_analysis_result=None,
+                        long_term_memory_context=memory_context,
                         on_module_complete=on_module_complete_callback
                     )
                     
