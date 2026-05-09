@@ -9,6 +9,7 @@ import logging
 
 from .services.data_service import aggregate_status_data
 from .services.llm_service import analyze_with_llm
+from .services.llm_service_v2 import analyze_all_modules_sequential
 from .services.persona_service import update_system_persona
 from .services.important_event_service import (
     extract_important_events_for_report,
@@ -262,16 +263,18 @@ def generate_daily_reports(self):
                             retrieve_important_events(character, aggregated_data)
                         )
                     
-                    analysis_result = analyze_with_llm(
-                        aggregated_data, 
-                        character.name, 
-                        config.persona, 
-                        config.ai_persona, 
-                        config.system_inferred_persona,
-                        previous_report=previous_report,
-                        is_incremental=use_incremental,
-                        previous_cutoff_time=previous_cutoff_time,
-                        long_term_memory_context=memory_context,
+                    # 准备人设信息
+                    persona_info = {
+                        "persona": config.persona,
+                        "ai_persona": config.ai_persona,
+                        "system_inferred_persona": config.system_inferred_persona
+                    }
+
+                    analysis_result = analyze_all_modules_sequential(
+                        aggregated_data,
+                        character.name,
+                        persona_info,
+                        previous_analysis_result=existing_report.analysis_result
                     )
                     
                     if 'error' in analysis_result:
@@ -298,13 +301,18 @@ def generate_daily_reports(self):
                             retrieve_important_events(character, aggregated_data)
                         )
                     
-                    analysis_result = analyze_with_llm(
+                    # 准备人设信息
+                    persona_info = {
+                        "persona": config.persona,
+                        "ai_persona": config.ai_persona,
+                        "system_inferred_persona": config.system_inferred_persona
+                    }
+
+                    analysis_result = analyze_all_modules_sequential(
                         aggregated_data,
                         character.name,
-                        config.persona,
-                        config.ai_persona,
-                        config.system_inferred_persona,
-                        long_term_memory_context=memory_context,
+                        persona_info,
+                        previous_analysis_result=None
                     )
                     
                     if 'error' in analysis_result:

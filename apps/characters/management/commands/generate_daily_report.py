@@ -4,6 +4,7 @@ from datetime import date, datetime, timedelta
 from apps.characters.models import Character, DailyReportConfig, DailyReport
 from apps.characters.services.data_service import aggregate_status_data
 from apps.characters.services.llm_service import analyze_with_llm
+from apps.characters.services.llm_service_v2 import analyze_all_modules_sequential
 from apps.characters.services.important_event_service import format_events_for_prompt, retrieve_important_events
 import logging
 
@@ -44,6 +45,12 @@ class Command(BaseCommand):
             action='store_true',
             help='Exclude important events/long-term memory from AI analysis'
         )
+        parser.add_argument(
+            '--module', '-m',
+            type=str,
+            choices=['title_summary', 'schedule', 'activity', 'findings', 'chat'],
+            help='Regenerate only a specific module'
+        )
 
     def handle(self, *args, **options):
         character_uid = options['character_uid']
@@ -52,6 +59,7 @@ class Command(BaseCommand):
         no_ai = options['no_ai']
         update_mode = options['update']
         no_events = options['no_events']
+        target_module = options['module']
 
         try:
             target_date = datetime.strptime(date_str, '%Y-%m-%d').date()
@@ -236,17 +244,26 @@ class Command(BaseCommand):
                     retrieve_important_events(character, aggregated_data)
                 )
 
-            analysis_result = analyze_with_llm(
-                aggregated_data, 
-                character.name, 
-                config.persona, 
-                config.ai_persona, 
-                config.system_inferred_persona,
-                previous_report=previous_report,
-                is_incremental=use_incremental,
-                previous_cutoff_time=previous_cutoff_time,
+            # 准备人设信息
+            persona_info = {
+                "persona": config.persona,
+                "ai_persona": config.ai_persona,
+                "system_inferred_persona": config.system_inferred_persona
+            }
+
+            # 如果指定了目标模块，必须传入现有结果作为基础
+            prev_analysis = None
+            if existing_report:
+                if target_module or update_mode:
+                    prev_analysis = existing_report.analysis_result
+
+            analysis_result = analyze_all_modules_sequential(
+                aggregated_data,
+                character.name,
+                persona_info,
+                previous_analysis_result=prev_analysis,
                 long_term_memory_context=memory_context,
-                include_important_events=not no_events
+                target_module=target_module
             )
 
             if analysis_result.get('error'):
