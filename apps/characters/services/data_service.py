@@ -7,7 +7,7 @@ from apps.characters.models import CharacterStatus
 logger = logging.getLogger(__name__)
 
 # 活跃时间区间的最大间隔（分钟）
-ACTIVE_INTERVAL_MAX_GAP = 60
+ACTIVE_INTERVAL_MAX_GAP = 120
 
 def _extract_raw_usage(statuses, field_mappings):
     """提取手机应用、电脑应用和步数的原始流水，以及当天的活跃小时集合和活跃时间点"""

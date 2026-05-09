@@ -8,7 +8,24 @@ HTML报告结构化数据生成服务
 import logging
 from collections import defaultdict
 
+import re
+
 logger = logging.getLogger(__name__)
+
+def _clean_app_name(name):
+    """清洗应用名称，合并浏览器标题等冗余信息（仅用于前端展示脱敏）"""
+    if not name:
+        return name
+    # 匹配常见浏览器及其标题
+    browser_patterns = [
+        r'^(Google Chrome|Microsoft Edge|Safari|Firefox|Arc|Opera):.*',
+        r'^(Google Chrome|Microsoft Edge|Safari|Firefox|Arc|Opera)$'
+    ]
+    for pattern in browser_patterns:
+        match = re.match(pattern, name, re.IGNORECASE)
+        if match:
+            return match.group(1)
+    return name
 
 
 # ──────────────────────────────────────────────
@@ -154,15 +171,28 @@ def _build_app_usage_chart(raw_data: dict) -> dict:
         sorted_apps = sorted(app_dict.items(), key=lambda x: x[1], reverse=True)
         return [{"name": k, "count": v} for k, v in sorted_apps[:limit]]
 
-    phone_top = top_apps(phone_apps)
-    computer_top = top_apps(computer_apps)
-
-    # 合并计算总使用频次（用于展示总览）
+    # 合并计算总使用频次（用于展示总览）并进行清洗
     merged = defaultdict(int)
     for k, v in phone_apps.items():
-        merged[k] += v
+        clean_k = _clean_app_name(k)
+        merged[clean_k] += v
     for k, v in computer_apps.items():
-        merged[k] += v
+        clean_k = _clean_app_name(k)
+        merged[clean_k] += v
+
+    # 同时也清洗分设备的数据
+    def process_app_dict(app_dict: dict) -> dict:
+        if not isinstance(app_dict, dict): return {}
+        cleaned = defaultdict(int)
+        for k, v in app_dict.items():
+            cleaned[_clean_app_name(k)] += v
+        return dict(cleaned)
+
+    phone_cleaned = process_app_dict(phone_apps)
+    computer_cleaned = process_app_dict(computer_apps)
+
+    phone_top = top_apps(phone_cleaned)
+    computer_top = top_apps(computer_cleaned)
 
     all_top = sorted(merged.items(), key=lambda x: x[1], reverse=True)[:10]
     combined = [{"name": k, "count": v} for k, v in all_top]
