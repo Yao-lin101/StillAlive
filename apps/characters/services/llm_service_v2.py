@@ -75,15 +75,27 @@ def analyze_module_structured(
 
     # 构建动态分析规则 (使用 V2 专有规则)
     common_rules = pv2.BASE_V2_ANALYSIS_RULES
+    trap_rules = []
+    
     if module_key == 'schedule':
-        common_rules += pv2.STEPS_V2_TRAP_RULE
+        trap_rules.append(pv2.STEPS_V2_TRAP_RULE)
     elif module_key == 'activity':
-        common_rules += pv2.APP_STAY_V2_TRAP_RULE
+        trap_rules.append(pv2.APP_STAY_V2_TRAP_RULE)
     elif module_key == 'chat':
-        common_rules += pv2.CHAT_V2_TRAP_RULE
-    elif module_key in ['findings', 'title_summary']:
-        # 这些模块可能涉及所有数据，所以都加上
-        common_rules += pv2.STEPS_V2_TRAP_RULE + pv2.APP_STAY_V2_TRAP_RULE + pv2.CHAT_V2_TRAP_RULE
+        trap_rules.append(pv2.CHAT_V2_TRAP_RULE)
+    elif module_key == 'findings':
+        # 有趣发现涉及全量原始数据，注入所有陷阱提示以防误判
+        trap_rules.extend([
+            pv2.STEPS_V2_TRAP_RULE,
+            pv2.APP_STAY_V2_TRAP_RULE,
+            pv2.CHAT_V2_TRAP_RULE
+        ])
+    elif module_key == 'title_summary':
+        # 最终总结基于各模块结论和精简摘要，无需底层数据陷阱提示
+        pass
+
+    if trap_rules:
+        common_rules += "4. **数据局限性与推理指南**：\n" + "\n".join([f"   {rule}" for rule in trap_rules])
 
     system_prompt = pv2.V2_STRUCTURED_SYSTEM_PROMPT.format(
         core_identity=core_identity,
