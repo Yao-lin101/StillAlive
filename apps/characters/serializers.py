@@ -186,6 +186,7 @@ class DailyReportConfigSerializer(serializers.ModelSerializer):
             'field_mappings',
             'persona',
             'ai_persona',
+            'template_style',
             'created_at',
             'updated_at'
         ]

@@ -229,6 +229,11 @@ class DailyReportConfig(models.Model):
         blank=True,
         help_text='AI 人设配置，用于自定义日报分析时的 AI 身份，格式: {"core_identity": "核心身份", "personality_traits": "性格特征", "language_style": "语言风格"}'
     )
+    template_style = models.CharField(
+        max_length=50,
+        default='default',
+        help_text='日报模板风格'
+    )
     system_inferred_persona = models.TextField(
         blank=True,
         null=True,

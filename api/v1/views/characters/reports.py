@@ -252,7 +252,12 @@ def get_daily_report_detail(request, code):
     
     from apps.characters.serializers import DailyReportDetailSerializer
     serializer = DailyReportDetailSerializer(report)
-    return Response(serializer.data)
+    
+    # 获取并注入模板风格
+    res_data = serializer.data
+    res_data['template_style'] = config.template_style if config else 'default'
+    
+    return Response(res_data)
 
 
 @api_view(['GET'])
