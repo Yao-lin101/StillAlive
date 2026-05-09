@@ -256,6 +256,24 @@ class Command(BaseCommand):
             if existing_report:
                 if target_module or update_mode:
                     prev_analysis = existing_report.analysis_result
+            else:
+                # 如果是新日报，先创建一个占位记录，以便支持增量保存展示
+                existing_report = DailyReport.objects.create(
+                    character=character,
+                    date=target_date,
+                    raw_data=aggregated_data,
+                    analysis_result={"version": 2, "sections": {}},
+                    data_cutoff_time=timezone.now()
+                )
+
+            # 定义增量保存回调
+            def on_module_complete_callback(current_sections):
+                if existing_report:
+                    res = existing_report.analysis_result or {"version": 2, "sections": {}}
+                    res['sections'] = current_sections
+                    existing_report.analysis_result = res
+                    existing_report.save(update_fields=['analysis_result'])
+                    self.stdout.write(self.style.NOTICE(f"  [Incremental] Module progress saved to DB."))
 
             analysis_result = analyze_all_modules_sequential(
                 aggregated_data,
@@ -263,7 +281,8 @@ class Command(BaseCommand):
                 persona_info,
                 previous_analysis_result=prev_analysis,
                 long_term_memory_context=memory_context,
-                target_module=target_module
+                target_module=target_module,
+                on_module_complete=on_module_complete_callback
             )
 
             if analysis_result.get('error'):

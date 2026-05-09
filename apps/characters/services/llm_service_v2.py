@@ -277,7 +277,8 @@ def analyze_all_modules_sequential(
     persona_info,
     previous_analysis_result=None,
     long_term_memory_context=None,
-    target_module=None
+    target_module=None,
+    on_module_complete=None
 ):
     """
     顺序执行所有模块分析（V2 版本的核心入口）
@@ -404,6 +405,10 @@ def analyze_all_modules_sequential(
                 "error": result["error"],
                 "updated_at": timezone.now().isoformat()
             }
+
+        # 增量回调：每完成一个模块就通知调用方
+        if on_module_complete:
+            on_module_complete(new_sections)
 
     return {
         "version": 2,

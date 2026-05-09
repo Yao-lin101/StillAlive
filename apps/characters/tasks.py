@@ -270,11 +270,21 @@ def generate_daily_reports(self):
                         "system_inferred_persona": config.system_inferred_persona
                     }
 
+                    # 准备增量保存回调
+                    def on_module_complete_callback(current_sections):
+                        if existing_report:
+                            res = existing_report.analysis_result or {"version": 2, "sections": {}}
+                            res['sections'] = current_sections
+                            existing_report.analysis_result = res
+                            existing_report.save(update_fields=['analysis_result'])
+                            logger.info(f"  [Incremental] Progress saved for {character.name}")
+
                     analysis_result = analyze_all_modules_sequential(
                         aggregated_data,
                         character.name,
                         persona_info,
-                        previous_analysis_result=existing_report.analysis_result
+                        previous_analysis_result=existing_report.analysis_result,
+                        on_module_complete=on_module_complete_callback
                     )
                     
                     if 'error' in analysis_result:
@@ -308,25 +318,39 @@ def generate_daily_reports(self):
                         "system_inferred_persona": config.system_inferred_persona
                     }
 
+                    # 如果是新日报，先创建一个占位记录，以便支持增量保存展示
+                    existing_report = DailyReport.objects.create(
+                        character=character,
+                        date=target_date,
+                        is_hidden=False,
+                        raw_data=aggregated_data,
+                        analysis_result={"version": 2, "sections": {}},
+                        last_record_time=new_last_record_time,
+                        data_cutoff_time=current_cutoff_time
+                    )
+
+                    # 准备增量保存回调
+                    def on_module_complete_callback(current_sections):
+                        if existing_report:
+                            res = existing_report.analysis_result or {"version": 2, "sections": {}}
+                            res['sections'] = current_sections
+                            existing_report.analysis_result = res
+                            existing_report.save(update_fields=['analysis_result'])
+                            logger.info(f"  [Incremental] Progress saved for {character.name}")
+
                     analysis_result = analyze_all_modules_sequential(
                         aggregated_data,
                         character.name,
                         persona_info,
-                        previous_analysis_result=None
+                        previous_analysis_result=None,
+                        on_module_complete=on_module_complete_callback
                     )
                     
                     if 'error' in analysis_result:
                         raise Exception(f"LLM Analysis failed: {analysis_result['error']}")
                     
-                    DailyReport.objects.create(
-                        character=character,
-                        date=target_date,
-                        is_hidden=False,
-                        raw_data=aggregated_data,
-                        analysis_result=analysis_result,
-                        last_record_time=new_last_record_time,
-                        data_cutoff_time=current_cutoff_time
-                    )
+                    existing_report.analysis_result = analysis_result
+                    existing_report.save()
                     
                     new_count += 1
                     success_count += 1

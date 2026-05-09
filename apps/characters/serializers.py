@@ -276,10 +276,13 @@ class DailyReportDetailSerializer(serializers.ModelSerializer):
 
     def get_report_data(self, obj):
         """生成结构化HTML报告数据（图表数据 + LLM评论）"""
+        analysis_result = obj.analysis_result or {}
+        if analysis_result.get('version', 1) < 2:
+            return None
+
         try:
             from .services.html_report_service import build_report_data
             raw_data = obj.raw_data or {}
-            analysis_result = obj.analysis_result or {}
             return build_report_data(raw_data, analysis_result)
         except Exception as e:
             logger.error(f"Failed to build report_data for report {obj.id}: {e}")

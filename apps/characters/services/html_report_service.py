@@ -351,6 +351,14 @@ def _extract_llm_comments(analysis_result: dict) -> dict:
 
     if version >= 2 and sections:
         # V2 结构化提取
+        all_modules = ['title_summary', 'schedule', 'activity', 'findings', 'chat']
+        sections_status = {}
+        for m in all_modules:
+            if m in sections:
+                sections_status[m] = sections[m].get("status", "done")
+            else:
+                sections_status[m] = "pending"
+
         return {
             "version": version,
             "title": sections.get("title_summary", {}).get("title"),
@@ -364,7 +372,7 @@ def _extract_llm_comments(analysis_result: dict) -> dict:
             "chat": sections.get("chat", {}).get("overall"),
             "chat_items": sections.get("chat", {}).get("items", []),
             "has_content": True,
-            "sections_status": {k: v.get("status") for k, v in sections.items()},
+            "sections_status": sections_status,
             "raw_markdown": markdown,
         }
     else:
