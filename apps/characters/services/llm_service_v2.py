@@ -72,6 +72,18 @@ def analyze_module_structured(
     }
     format_instructions = format_instr_map.get(module_key, "")
 
+    # 构建动态分析规则 (使用 V2 专有规则)
+    common_rules = pv2.BASE_V2_ANALYSIS_RULES
+    if module_key == 'schedule':
+        common_rules += pv2.STEPS_V2_TRAP_RULE
+    elif module_key == 'activity':
+        common_rules += pv2.APP_STAY_V2_TRAP_RULE
+    elif module_key == 'chat':
+        common_rules += pv2.CHAT_V2_TRAP_RULE
+    elif module_key in ['findings', 'title_summary']:
+        # 这些模块可能涉及所有数据，所以都加上
+        common_rules += pv2.STEPS_V2_TRAP_RULE + pv2.APP_STAY_V2_TRAP_RULE + pv2.CHAT_V2_TRAP_RULE
+
     system_prompt = pv2.V2_STRUCTURED_SYSTEM_PROMPT.format(
         core_identity=core_identity,
         personality_traits=personality_traits,
@@ -79,7 +91,7 @@ def analyze_module_structured(
         character_name=character_name,
         user_persona=persona_info.get('persona', '无'),
         system_inferred_persona=persona_info.get('system_inferred_persona', '无'),
-        common_rules=COMMON_ANALYSIS_RULES,
+        common_rules=common_rules,
         report_mode="模块化增量更新",
         mode_hint="请按照指定的 JSON 格式输出，保持角色沉浸。",
         cutoff_time=data_summary.get('data_cutoff_time', '未知'),
