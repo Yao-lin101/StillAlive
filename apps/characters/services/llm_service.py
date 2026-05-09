@@ -8,7 +8,8 @@ from .prompts import (
     CUSTOM_FORMAT_INSTRUCTIONS, DEFAULT_FORMAT_INSTRUCTIONS,
     CUSTOM_QQ_FORMAT_SECTION, DEFAULT_QQ_FORMAT_SECTION,
     META_INSTRUCTION_EXTRACTION_PROMPT, STRUCTURED_SYSTEM_PROMPT,
-    INITIAL_REPORT_PROMPT
+    INITIAL_REPORT_PROMPT, META_INSTRUCTION_CHECK_PROMPT,
+    META_REDACTION_MATCH_PROMPT
 )
 from .data_service import ACTIVE_INTERVAL_MAX_GAP
 
@@ -140,91 +141,88 @@ def _get_data_keys(data_summary):
 
 def _extract_meta_instructions(client, model, private_blocks, data_keys=[]):
     """
-    第一阶段：从私聊记录中提取元指令和脱敏需求
+    第一阶段：从私聊记录中提取元指令和脱敏需求 (采用两步审计法)
     """
     if not private_blocks:
-        return {"instructions": [], "redactions": {}, "has_any": False}
+        return {"instructions": [], "redactions": [], "has_any": False}
 
     # 格式化私聊记录供提取使用
     chat_content = ""
     for block in private_blocks:
-        # 兼容原始对话格式
-        if '用户' in block:
-            chat_content += f"用户: {block['用户']}\n"
-        if '你的回复' in block:
-            chat_content += f"你: {block['你的回复']}\n"
-        
-        # 兼容总结后的对话格式
-        if '话题' in block:
-            chat_content += f"话题: {block['话题']}\n"
-        if '总结' in block:
-            chat_content += f"总结: {block['总结']}\n"
-            
+        if '用户' in block: chat_content += f"用户: {block['用户']}\n"
+        if '你的回复' in block: chat_content += f"你: {block['你的回复']}\n"
+        if '话题' in block: chat_content += f"话题: {block['话题']}\n"
+        if '总结' in block: chat_content += f"总结: {block['总结']}\n"
         chat_content += "---\n"
 
     try:
-        # 排序并改用换行列表形式，避免标题内逗号导致歧义
-        sorted_keys = sorted(data_keys)
-        data_keys_str = "\n".join([f"- {k}" for k in sorted_keys])
-        prompt = META_INSTRUCTION_EXTRACTION_PROMPT.format(
-            private_chat_content=chat_content,
-            data_keys=data_keys_str
-        )
+        # --- 步骤 1: 提取指令与脱敏意向 (不带 data_keys) ---
+        prompt_step1 = META_INSTRUCTION_CHECK_PROMPT.format(private_chat_content=chat_content)
         
-        # 打印提取阶段的日志
-        print("\n" + "="*30 + " [STAGE 1: AUDIT & REDACTION] " + "="*30)
-        print(f"PROMPT SENT TO LLM:\n{prompt}")
-
-        response = client.messages.create(
+        print("\n" + "="*30 + " [AUDIT STAGE 1: INTENT] " + "="*30)
+        response_step1 = client.messages.create(
             model=model,
-            max_tokens=8192,  # 增加 token 限制以防脱敏表太长被截断
+            max_tokens=1000,
             temperature=0,
-            messages=[{"role": "user", "content": prompt}]
+            messages=[{"role": "user", "content": prompt_step1}]
         )
+        raw_res1 = extract_text_from_anthropic_response(response_step1)
+        print(f"STAGE 1 RAW RESPONSE:\n{raw_res1}")
+        res1 = _safe_json_loads_internal(raw_res1) or {"instructions": [], "needs_redaction": False}
         
-        raw_result = extract_text_from_anthropic_response(response)
-        if raw_result is None:
-            print("Warning: LLM returned None response content.")
-            return {"instructions": [], "redactions": [], "has_any": False}
-            
-        print(f"RAW LLM RESPONSE (Length: {len(raw_result)}):\n{raw_result}")
-        
-        # 尝试解析 JSON
-        import json
-        import re
-        
-        try:
-            # 预处理：修复颜文字或标题中未转义的反斜杠 (例如 \ ( ) -> \\ ( ) )
-            # 这是一个简单的启发式修复：将所有反斜杠替换为双反斜杠，但要避开已经是转义的内容
-            # 为简单起见，我们直接处理最常见的干扰项
-            processed_raw = raw_result.replace('\\', '\\\\')
-            # 但是上面的操作会把本就正确的 \" 变成 \\\"，需要修正回来
-            processed_raw = processed_raw.replace('\\\\"', '\\"')
+        instructions = res1.get('instructions', [])
+        needs_redaction = res1.get('needs_redaction', False)
+        print(f"STAGE 1 DECISION: Instructions={instructions}, NeedsRedaction={needs_redaction}")
+        redactions = []
 
-            # 处理可能存在的 Markdown 代码块包裹
-            json_match = re.search(r'(\{.*\})', processed_raw, re.DOTALL)
-            if json_match:
-                result = json.loads(json_match.group(1))
-            else:
-                result = json.loads(processed_raw.strip())
-                
-            if not isinstance(result, dict):
-                result = {"instructions": [], "redactions": {}, "has_any": False}
-                
-            # 打印审计结果摘要
-            instr_count = len(result.get('instructions') or [])
-            redact_count = len(result.get('redactions') or {})
-            print(f"AUDIT RESULT: Instructions({instr_count}), Redactions({redact_count})")
-            print("="*100 + "\n")
+        # --- 步骤 2: 精准脱敏匹配 (仅在需要时执行) ---
+        if needs_redaction and data_keys:
+            sorted_keys = sorted(data_keys)
+            data_keys_str = "\n".join([f"- {k}" for k in sorted_keys])
+            prompt_step2 = META_REDACTION_MATCH_PROMPT.format(
+                private_chat_content=chat_content,
+                data_keys=data_keys_str
+            )
             
-            return result
-        except Exception as json_err:
-            print(f"JSON Parsing failed: {json_err}")
-            # 如果截断了，尝试闭合大括号进行“抢救性解析” (可选，但通常返回空更安全)
-            return {"instructions": [], "redactions": {}, "has_any": False}
+            print("\n" + "="*30 + " [AUDIT STAGE 2: REDACTION] " + "="*30)
+            response_step2 = client.messages.create(
+                model=model,
+                max_tokens=2000,
+                temperature=0,
+                messages=[{"role": "user", "content": prompt_step2}]
+            )
+            raw_res2 = extract_text_from_anthropic_response(response_step2)
+            print(f"STAGE 2 RAW RESPONSE:\n{raw_res2}")
+            redactions = _safe_json_loads_internal(raw_res2) or []
+            if not isinstance(redactions, list): redactions = []
+            print(f"STAGE 2 DECISION: Redactions={redactions}")
+
+        has_any = bool(instructions or redactions)
+        print(f"AUDIT RESULT: Instructions({len(instructions)}), Redactions({len(redactions)}), HasAny: {has_any}")
+        print("="*80 + "\n")
+        
+        return {
+            "instructions": instructions,
+            "redactions": redactions,
+            "has_any": has_any
+        }
+
     except Exception as e:
-        logger.error(f"Failed to extract meta-instructions: {e}")
-        return {"instructions": [], "redactions": {}, "has_any": False}
+        logger.error(f"Failed to extract meta-instructions (Two-Step): {e}")
+        return {"instructions": [], "redactions": [], "has_any": False}
+
+def _safe_json_loads_internal(text):
+    """内部使用的 JSON 解析，包含清理逻辑"""
+    if not text: return None
+    import re, json
+    try:
+        processed = text.replace('\\', '\\\\').replace('\\\\"', '\\"')
+        json_match = re.search(r'(\{.*\}|\[.*\])', processed, re.DOTALL)
+        if json_match:
+            return json.loads(json_match.group(1))
+        return json.loads(text.strip())
+    except:
+        return None
 
 
 

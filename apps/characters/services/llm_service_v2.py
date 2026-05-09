@@ -40,7 +40,8 @@ def analyze_module_structured(
     meta_constraints=None,
     long_term_memory_context=None,
     other_modules_context=None,
-    compact_mode=False
+    compact_mode=False,
+    redaction_items=None
 ):
     """
     单模块结构化分析核心函数
@@ -230,6 +231,17 @@ def analyze_module_structured(
             memory_section=f"\n# 长期记忆/历史背景\n{long_term_memory_context}" if long_term_memory_context else ""
         )
 
+    # 4. 执行数据脱敏 (Data Redaction)
+    if redaction_items:
+        mask_text = "【隐藏剧情】"
+        for original in redaction_items:
+            if original and original.strip():
+                user_prompt = user_prompt.replace(original, mask_text)
+
+    # 5. 动态追加末尾强化提醒 (针对特殊约束内容复述)
+    if meta_constraints and meta_constraints.strip():
+        user_prompt += f"\n\n**再次提醒**：请务必检查并严格遵守以下【特殊约束】，确保输出内容符合用户的最新指示：\n{meta_constraints}"
+
     # 打印调试信息
     print(f"\n{'='*60}")
     print(f"DEBUG: Analyzing Module [{module_key}]")
@@ -272,8 +284,30 @@ def analyze_all_modules_sequential(
     支持 target_module 参数，用于仅重新生成特定模块
     """
     # 预处理：从 aggregated_data 提取 meta 信息
-    data_summary = aggregated_data # 假设结构一致
+    data_summary = aggregated_data 
     
+    # 1. 审计阶段 (Stage 1: Audit & Redaction)
+    # 获取 client/model 以便调用审计工具
+    api_key = getattr(settings, 'ANTHROPIC_API_KEY', None)
+    model = getattr(settings, 'ANTHROPIC_MODEL', 'claude-3-5-sonnet-20241022')
+    base_url = getattr(settings, 'ANTHROPIC_BASE_URL', None)
+    
+    import anthropic
+    client_kwargs = {'api_key': api_key}
+    if base_url: client_kwargs['base_url'] = base_url
+    client = anthropic.Anthropic(**client_kwargs)
+
+    private_blocks = []
+    for msg_record in data_summary.get('qq_messages', []):
+        if isinstance(msg_record, dict) and msg_record.get('message_type') == 'private':
+            private_blocks.extend(msg_record.get('message_data', []))
+    
+    data_keys = _get_data_keys(data_summary)
+    audit_result = _extract_meta_instructions(client, model, private_blocks, data_keys)
+    
+    meta_instructions = "\n".join(audit_result.get('instructions', []))
+    redaction_items = audit_result.get('redactions', [])
+
     # 获取旧的 sections（如果存在）
     prev_result = previous_analysis_result or {}
     prev_sections = prev_result.get('sections', {})
@@ -334,9 +368,11 @@ def analyze_all_modules_sequential(
             character_name,
             persona_info,
             previous_module_data=prev_sections.get(mod),
+            meta_constraints=meta_instructions,
             long_term_memory_context=long_term_memory_context,
             other_modules_context=other_context,
-            compact_mode=(mod == 'title_summary')
+            compact_mode=(mod == 'title_summary'),
+            redaction_items=redaction_items
         )
         
         if "error" not in result:
