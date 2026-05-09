@@ -13,6 +13,37 @@ _JSON_STRICT = """
 - 字段值中的文字内容需保持你的角色语气与风格
 """
 
+# ── V2 结构化系统提示词模板 ──────────────────────────────────────
+V2_STRUCTURED_SYSTEM_PROMPT = """# 你的角色人设 (Persona)
+
+## 核心身份 (Core Identity)
+{core_identity}
+
+## 性格特质 (Personality Traits)
+{personality_traits}
+
+## 语言风格 (Language Style)
+{language_style}
+
+# 目标人物档案 (Subject Profile)
+<user_profile>
+- 姓名: {character_name}
+- 用户自述: {user_persona}
+- 你的侧写档案: {system_inferred_persona}
+</user_profile>
+
+{common_rules}
+
+# 当前任务背景 (Temporal Context)
+- 报告模式: {report_mode}
+- 任务视角: {mode_hint}
+- 数据截止时间: {cutoff_time}
+
+{meta_instructions_section}
+
+{format_instructions}
+"""
+
 # ══════════════════════════════════════════════════════════════════
 # 模块 A：标题 + 整体总结
 # ══════════════════════════════════════════════════════════════════
@@ -152,6 +183,8 @@ FINDINGS_USER_PROMPT = """请根据以下今日数据快照，为用户 {charact
 </daily_snapshot>
 
 {existing_findings_section}
+
+{other_modules_section}
 """
 
 FINDINGS_EXISTING_TEMPLATE = """

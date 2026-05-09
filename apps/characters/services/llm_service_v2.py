@@ -38,7 +38,8 @@ def analyze_module_structured(
     persona_info,
     previous_module_data=None,
     meta_constraints=None,
-    long_term_memory_context=None
+    long_term_memory_context=None,
+    other_modules_context=None
 ):
     """
     单模块结构化分析核心函数
@@ -57,7 +58,9 @@ def analyze_module_structured(
 
     # 1. 准备 System Prompt
     ai_persona = persona_info.get('ai_persona') or {}
-    ai_identity_desc = ai_persona.get('core_identity') or ai_persona.get('personality_traits') or "你是一位精准的数据分析专家。"
+    core_identity = ai_persona.get('core_identity') or "你是一位精准的数据分析专家。"
+    personality_traits = ai_persona.get('personality_traits') or "理性、严谨、客观。"
+    language_style = ai_persona.get('language_style') or "口语化，表达自然、流畅，保持你的角色口吻。"
     
     # 注入该模块特有的 Format Instructions
     format_instr_map = {
@@ -69,8 +72,10 @@ def analyze_module_structured(
     }
     format_instructions = format_instr_map.get(module_key, "")
 
-    system_prompt = STRUCTURED_SYSTEM_PROMPT.format(
-        ai_identity_desc=ai_identity_desc,
+    system_prompt = pv2.V2_STRUCTURED_SYSTEM_PROMPT.format(
+        core_identity=core_identity,
+        personality_traits=personality_traits,
+        language_style=language_style,
         character_name=character_name,
         user_persona=persona_info.get('persona', '无'),
         system_inferred_persona=persona_info.get('system_inferred_persona', '无'),
@@ -83,13 +88,20 @@ def analyze_module_structured(
     )
 
     # 2. 准备 User Prompt (根据模块不同，构建不同的数据上下文)
+    # 对于作息分析模块，剔除应用数据块，只保留步数和活跃周期
+    exclude_apps = (module_key == 'schedule')
+    # 对于活动画像模块，剔除步数和活跃周期数据，只保留应用数据
+    exclude_steps_and_ranges = (module_key == 'activity')
+    
     data_section = _build_data_section(
         data_summary, 
         data_summary.get('date'), 
         "", 
         data_summary.get('data_cutoff_time'), 
         is_day_ended=False, 
-        include_system_prompt=False
+        include_system_prompt=False,
+        exclude_apps=exclude_apps,
+        exclude_steps_and_ranges=exclude_steps_and_ranges
     )
 
     existing_section = ""
@@ -129,7 +141,8 @@ def analyze_module_structured(
         user_prompt = pv2.FINDINGS_USER_PROMPT.format(
             character_name=character_name,
             data_section=data_section,
-            existing_findings_section=existing_section
+            existing_findings_section=existing_section,
+            other_modules_section=f"\n# 其他模块分析结论\n{other_modules_context}" if other_modules_context else ""
         )
     elif module_key == 'chat':
         # 这里比较特殊，需要过滤出新的聊天记录
@@ -156,6 +169,14 @@ def analyze_module_structured(
             data_section=data_section,
             memory_section=f"\n# 长期记忆/历史背景\n{long_term_memory_context}" if long_term_memory_context else ""
         )
+
+    # 打印调试信息
+    print(f"\n{'='*60}")
+    print(f"DEBUG: Analyzing Module [{module_key}]")
+    print(f"{'='*60}")
+    print(f"\n--- [SYSTEM PROMPT] ---\n{system_prompt}")
+    print(f"\n--- [USER PROMPT] ---\n{user_prompt}")
+    print(f"\n{'='*60}\n")
 
     # 3. 调用 LLM
     try:
@@ -198,23 +219,38 @@ def analyze_all_modules_sequential(
     # 初始化新的 sections
     new_sections = prev_sections.copy()
     
-    # 模块列表
-    modules = ['title_summary', 'schedule', 'activity', 'findings', 'chat']
+    # 模块列表 (findings 放在最后，以便参考之前的分析)
+    modules = ['title_summary', 'schedule', 'activity', 'chat', 'findings']
     
     for mod in modules:
-        # 更新状态为 updating (这一步在 celery task 中处理更合适，这里只负责生成数据)
-        # 这里模拟同步执行
         logger.info(f"Analyzing module: {mod}")
         
-        # 处理 findings 之前，可能需要其他模块的 context (可选)
-        
+        # 增加跳过逻辑：如果模块是 chat 且没有聊天数据，直接跳过
+        if mod == 'chat' and not data_summary.get('qq_messages'):
+            logger.info("No chat data found, skipping 'chat' module.")
+            new_sections[mod] = {
+                "status": "skipped",
+                "updated_at": timezone.now().isoformat()
+            }
+            continue
+
+        # 构建上下文：给 findings 提供之前的总结
+        other_context = ""
+        if mod == 'findings':
+            for m in ['schedule', 'activity']:
+                if m in new_sections and new_sections[m].get('status') == 'done':
+                    summary = new_sections[m].get('overall') or new_sections[m].get('summary')
+                    if summary:
+                        other_context += f"【{m} 模块结论】：{summary}\n"
+
         result = analyze_module_structured(
             mod,
             data_summary,
             character_name,
             persona_info,
             previous_module_data=prev_sections.get(mod),
-            long_term_memory_context=long_term_memory_context
+            long_term_memory_context=long_term_memory_context,
+            other_modules_context=other_context
         )
         
         if "error" not in result:

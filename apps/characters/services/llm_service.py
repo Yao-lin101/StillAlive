@@ -228,7 +228,7 @@ def _extract_meta_instructions(client, model, private_blocks, data_keys=[]):
 
 
 
-def _build_data_section(data_summary, target_date_str, weekday_str, cutoff_time_str, is_day_ended=False, include_system_prompt=True):
+def _build_data_section(data_summary, target_date_str, weekday_str, cutoff_time_str, is_day_ended=False, include_system_prompt=True, exclude_apps=False, exclude_steps_and_ranges=False):
     """
     统一格式化数据概览和应用使用情况，返回用于注入 prompt 的文本
     """
@@ -250,7 +250,7 @@ def _build_data_section(data_summary, target_date_str, weekday_str, cutoff_time_
 - 总记录数: {data_summary.get('total_records', 0)}
 """
     
-    if global_ranges:
+    if not exclude_steps_and_ranges and global_ranges:
         ranges_str = "\n".join([f"- {r}" for r in global_ranges])
         data_section += f"""
 ## 近期连续活跃周期
@@ -263,7 +263,7 @@ def _build_data_section(data_summary, target_date_str, weekday_str, cutoff_time_
 """
     # 注意：这里的系统提示词逻辑稍后将在 analyze_with_llm 中重构，目前保留基础数据
    
-    if data_summary.get('phone_app_summary'):
+    if not exclude_apps and data_summary.get('phone_app_summary'):
         data_section += f"\n## 手机应用（总计前20）\n{json.dumps(data_summary['phone_app_summary'], ensure_ascii=False)}\n"
         if data_summary.get('phone_app_by_time_range'):
             # 不过滤时间范围，保留所有应用使用记录
@@ -272,7 +272,7 @@ def _build_data_section(data_summary, target_date_str, weekday_str, cutoff_time_
             if filtered_time_ranges:
                 data_section += f"\n## 手机应用（按时间范围，[单次时长/min]或\"N次(共Xm,最长Ym)\"）\n{json.dumps(filtered_time_ranges, ensure_ascii=False)}\n"
     
-    if data_summary.get('computer_app_summary'):
+    if not exclude_apps and data_summary.get('computer_app_summary'):
         data_section += f"\n## 电脑应用（总计前20）\n{json.dumps(data_summary['computer_app_summary'], ensure_ascii=False)}\n"
         if data_summary.get('computer_app_by_time_range'):
             # 不过滤时间范围，保留所有应用使用记录
@@ -281,7 +281,7 @@ def _build_data_section(data_summary, target_date_str, weekday_str, cutoff_time_
             if filtered_time_ranges:
                 data_section += f"\n## 电脑应用（按时间范围，[单次时长/min]或\"N次(共Xm,最长Ym)\"）\n{json.dumps(filtered_time_ranges, ensure_ascii=False)}\n"
     
-    if data_summary.get('steps_summary'):
+    if not exclude_steps_and_ranges and data_summary.get('steps_summary'):
         data_section += f"\n## 今日总步数: {data_summary['steps_summary'].get('total', 0)}\n"
         if data_summary.get('steps_by_hour'):
             data_section += f"\n## 步数（按小时累计）\n{json.dumps(data_summary['steps_by_hour'], ensure_ascii=False)}\n"
