@@ -279,6 +279,8 @@ class Command(BaseCommand):
                     existing_report.save(update_fields=['analysis_result'])
                     self.stdout.write(self.style.NOTICE(f"  [Incremental] Module progress saved to DB."))
 
+            is_day_ended = (target_date < today)
+
             analysis_result = analyze_all_modules_sequential(
                 aggregated_data,
                 character.name,
@@ -286,7 +288,8 @@ class Command(BaseCommand):
                 previous_analysis_result=prev_analysis,
                 long_term_memory_context=memory_context,
                 target_modules=target_modules,
-                on_module_complete=on_module_complete_callback
+                on_module_complete=on_module_complete_callback,
+                is_day_ended=is_day_ended
             )
 
             if analysis_result.get('error'):

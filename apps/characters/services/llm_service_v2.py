@@ -46,7 +46,8 @@ def analyze_module_structured(
     long_term_memory_context=None,
     other_modules_context=None,
     compact_mode=False,
-    redaction_items=None
+    redaction_items=None,
+    is_day_ended=False
 ):
     """
     单模块结构化分析核心函数
@@ -74,7 +75,7 @@ def analyze_module_structured(
         'title_summary': pv2.TITLE_SUMMARY_FORMAT_INSTRUCTIONS,
         'schedule': pv2.SCHEDULE_FORMAT_INSTRUCTIONS,
         'activity': pv2.ACTIVITY_FORMAT_INSTRUCTIONS,
-        'findings': pv2.FINDINGS_FORMAT_INSTRUCTIONS,
+        'findings': pv2.FINDINGS_RECAP_FORMAT_INSTRUCTIONS if is_day_ended else pv2.FINDINGS_MONITOR_FORMAT_INSTRUCTIONS,
         'chat': pv2.CHAT_FORMAT_INSTRUCTIONS,
     }
     format_instructions = format_instr_map.get(module_key, "")
@@ -90,24 +91,11 @@ def analyze_module_structured(
     elif module_key == 'chat':
         trap_rules.append(pv2.CHAT_V2_TRAP_RULE)
     elif module_key == 'findings':
-        # 有趣发现涉及全量原始数据，注入所有陷阱提示以防误判
         trap_rules.extend([
             pv2.STEPS_V2_TRAP_RULE,
             pv2.APP_STAY_V2_TRAP_RULE,
             pv2.CHAT_V2_TRAP_RULE
         ])
-        
-        # 注入时间线性增长约束 (系统级)
-        last_end_time = "00:00"
-        prev_data = previous_module_data or {}
-        slots = prev_data.get('slots', [])
-        locked_slots = [s for s in slots if s.get('locked')]
-        if locked_slots:
-            last_r = locked_slots[-1].get('range', '')
-            if '-' in last_r:
-                last_end_time = last_r.split('-')[-1].strip()
-        
-        trap_rules.append(pv2.FINDINGS_PROGRESS_RULE_TEMPLATE.format(last_end_time=last_end_time))
     elif module_key == 'title_summary':
         # 最终总结基于各模块结论和精简摘要，无需底层数据陷阱提示
         pass
@@ -145,7 +133,7 @@ def analyze_module_structured(
         data_summary.get('date'), 
         "", 
         data_summary.get('data_cutoff_time'), 
-        is_day_ended=False, 
+        is_day_ended=is_day_ended, 
         include_system_prompt=False,
         exclude_apps=exclude_apps,
         exclude_steps_and_ranges=exclude_steps_and_ranges,
@@ -192,35 +180,9 @@ def analyze_module_structured(
             existing_slots_section=existing_section
         )
     elif module_key == 'findings':
-        prev_data = previous_module_data or {}
-        all_slots = prev_data.get('slots', [])
-        locked_slots = []
-        for s in all_slots:
-            if s.get('locked'):
-                s_copy = s.copy()
-                s_copy.pop('locked', None)
-                locked_slots.append(s_copy)
-
-        # 提取最后记录的时间点
-        last_end_time = "00:00"
-        if locked_slots:
-            # 这里 locked_slots 是剔除了 locked 字段的副本，直接取最后一个
-            last_r = all_slots[-1].get('range', '') # 还是从原数据取比较稳
-            if '-' in last_r:
-                last_end_time = last_r.split('-')[-1].strip()
-
-        # 使用发现专用的 Slot 模板，注入关键词
-        finding_keys = prev_data.get('finding_keys', [])
-        existing_section = pv2.FINDINGS_EXISTING_SLOTS_TEMPLATE.format(
-            locked_slots_json=json.dumps(locked_slots, ensure_ascii=False, indent=2),
-            last_end_time=last_end_time,
-            finding_keys="、".join(finding_keys) if finding_keys else "无"
-        )
-        
         user_prompt = pv2.FINDINGS_USER_PROMPT.format(
             character_name=character_name,
-            data_section=data_section,
-            existing_slots_section=existing_section
+            data_section=data_section
         )
     elif module_key == 'chat':
         # 聊天模块增量更新，注入已分析的话题
@@ -358,7 +320,8 @@ def analyze_all_modules_sequential(
     previous_analysis_result=None,
     long_term_memory_context=None,
     target_modules=None,
-    on_module_complete=None
+    on_module_complete=None,
+    is_day_ended=False
 ):
     """
     顺序执行所有模块分析（V2 版本的核心入口）
@@ -462,7 +425,8 @@ def analyze_all_modules_sequential(
             long_term_memory_context=long_term_memory_context,
             other_modules_context=other_context,
             compact_mode=(mod == 'title_summary'),
-            redaction_items=redaction_items
+            redaction_items=redaction_items,
+            is_day_ended=is_day_ended
         )
         
         if "error" not in result:
@@ -485,9 +449,12 @@ def analyze_all_modules_sequential(
                         for i, s in enumerate(final_slots):
                             s['locked'] = (i < len(final_slots) - 1)
                     else: # findings
-                        # 全部锁定
-                        for s in final_slots:
-                            s['locked'] = True
+                        # 发现模块特殊逻辑：如果是结项分析，我们通常希望重写 slots 以保证全局大局观
+                        if is_day_ended:
+                            final_slots = new_slots
+                        else:
+                            # 白天模式：不增加 slot，保留之前的（通常为空，除非是从历史数据带过来的）
+                            final_slots = prev_mod_data.get('slots', [])
                 
                 new_sections[mod] = {
                     "status": "done",
@@ -496,11 +463,6 @@ def analyze_all_modules_sequential(
                     "updated_at": timezone.now().isoformat(),
                     **mod_extra_meta
                 }
-                # 发现模块额外处理关键词
-                if mod == 'findings':
-                    old_keys = prev_mod_data.get('finding_keys', [])
-                    new_keys = result.get('new_finding_keys') or result.get('finding_keys') or []
-                    new_sections[mod]['finding_keys'] = list(set(old_keys + new_keys))
 
             elif mod == 'chat':
                 final_items = prev_mod_data.get('items', []) # 聊天记录默认都是锁定的
