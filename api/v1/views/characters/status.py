@@ -335,7 +335,7 @@ def bot_query_state(request):
             return Response({'error': '日报配置不存在'}, status=status.HTTP_400_BAD_REQUEST)
             
         from apps.characters.services.data_service import aggregate_status_data
-        from apps.characters.services.llm_service import _build_data_section
+        from apps.characters.services.llm_utils import build_data_section
         from apps.characters.services.important_event_service import (
             retrieve_important_events, format_events_for_prompt, _search_milvus_event_ids, ImportantEvent
         )
@@ -371,13 +371,11 @@ def bot_query_state(request):
                     except Exception:
                         pass
                         
-                prompt_content += _build_data_section(
+                prompt_content += build_data_section(
                     aggregated_data, 
-                    target_date_str, 
-                    weekday_str, 
+                    f"{target_date_str}{weekday_str}", 
                     cutoff_time_str, 
-                    is_day_ended=False,
-                    include_system_prompt=False
+                    is_day_ended=False
                 )
                 
                 system_inferred_persona = config.system_inferred_persona
