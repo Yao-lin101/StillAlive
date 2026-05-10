@@ -223,8 +223,8 @@ PERSONA_USER_PROMPT_DEFAULT = """【核心任务】：
 {data_section}
 
 【参照档案】：
-该用户自己声称的人设背景：
-{user_claimed_persona} (状态: {user_persona_status})
+该用户自己声称的人设背景({user_persona_status})：
+{user_claimed_persona}
 
 上次对他的暗中侧写档案：
 {last_inferred_persona}
@@ -249,8 +249,8 @@ PERSONA_USER_PROMPT_CUSTOM = """【核心任务】：
 {data_section}
 
 【参照档案】：
-该用户自己声称的人设背景：
-{user_claimed_persona} (状态: {user_persona_status})
+该用户自己声称的人设背景({user_persona_status})：
+{user_claimed_persona} 
 
 上次对他的暗中侧写档案：
 {last_inferred_persona}
