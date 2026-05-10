@@ -266,8 +266,9 @@ def generate_daily_reports(self):
                     # 准备人设信息
                     persona_info = {
                         "persona": config.persona,
+                        "persona_updated_at": config.persona_updated_at,
                         "ai_persona": config.ai_persona,
-                        "system_inferred_persona": config.system_inferred_persona
+                        "system_inferred_persona": config.system_inferred_persona,
                     }
 
                     # 准备增量保存回调
@@ -315,8 +316,9 @@ def generate_daily_reports(self):
                     # 准备人设信息
                     persona_info = {
                         "persona": config.persona,
+                        "persona_updated_at": config.persona_updated_at,
                         "ai_persona": config.ai_persona,
-                        "system_inferred_persona": config.system_inferred_persona
+                        "system_inferred_persona": config.system_inferred_persona,
                     }
 
                     # 如果是新日报，先创建一个占位记录，以便支持增量保存展示

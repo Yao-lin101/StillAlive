@@ -250,8 +250,9 @@ class Command(BaseCommand):
             # 准备人设信息
             persona_info = {
                 "persona": config.persona,
+                "persona_updated_at": config.persona_updated_at,
                 "ai_persona": config.ai_persona,
-                "system_inferred_persona": config.system_inferred_persona
+                "system_inferred_persona": config.system_inferred_persona,
             }
 
             # 如果指定了目标模块，必须传入现有结果作为基础

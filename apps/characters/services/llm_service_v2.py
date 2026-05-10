@@ -109,6 +109,10 @@ def analyze_module_structured(
         language_style=language_style,
         character_name=character_name,
         user_persona=persona_info.get('persona', '无'),
+        user_persona_status=(
+            f"更新于 {(timezone.now() - persona_info['persona_updated_at']).days} 天前" 
+            if persona_info.get('persona_updated_at') else "初始设定"
+        ),
         system_inferred_persona=persona_info.get('system_inferred_persona', '无'),
         common_rules=common_rules,
         report_mode="模块化增量更新",

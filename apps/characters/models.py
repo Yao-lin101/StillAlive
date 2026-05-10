@@ -2,6 +2,7 @@ import uuid
 import secrets
 import string
 from django.db import models
+from django.utils import timezone
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.validators import validate_email
@@ -240,6 +241,11 @@ class DailyReportConfig(models.Model):
         default='',
         help_text='系统暗中生成的真实人设档案（不对用户展示），用于修正LLM的长期认知'
     )
+    persona_updated_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text='用户自述人设更新时间'
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -249,6 +255,21 @@ class DailyReportConfig(models.Model):
         ]
         verbose_name = '日报配置'
         verbose_name_plural = '日报配置'
+
+    def save(self, *args, **kwargs):
+        if self.pk:
+            try:
+                old_instance = DailyReportConfig.objects.get(pk=self.pk)
+                if old_instance.persona != self.persona:
+                    self.persona_updated_at = timezone.now()
+            except DailyReportConfig.DoesNotExist:
+                if self.persona:
+                    self.persona_updated_at = timezone.now()
+        else:
+            if self.persona:
+                self.persona_updated_at = timezone.now()
+        
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return f"{self.character.name}的日报配置"
