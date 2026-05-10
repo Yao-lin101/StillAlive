@@ -312,7 +312,8 @@ def analyze_all_modules_sequential(
     long_term_memory_context=None,
     target_modules=None,
     on_module_complete=None,
-    is_day_ended=False
+    is_day_ended=False,
+    incremental=False
 ):
     """顺序执行所有模块分析 (重构版)"""
     # 1. 审计阶段
@@ -358,7 +359,14 @@ def analyze_all_modules_sequential(
             (isinstance(target_modules, str) and target_modules == mod) or
             (isinstance(target_modules, (list, tuple)) and mod in target_modules)
         )
-        mod_prev = None if is_target else prev_sections.get(mod)
+        
+        # 确定是否使用旧数据作为上下文
+        if incremental:
+            # 增量模式：始终尝试获取旧数据
+            mod_prev = prev_sections.get(mod)
+        else:
+            # 非增量模式：如果是目标重跑模块，则清空旧数据以强制全量重跑；否则保留旧数据（跳过重跑）
+            mod_prev = None if is_target else prev_sections.get(mod)
 
         result = analyze_module_structured(
             mod, aggregated_data, character_name, persona_info,

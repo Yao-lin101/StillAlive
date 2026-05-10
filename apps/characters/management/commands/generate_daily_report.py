@@ -288,7 +288,8 @@ class Command(BaseCommand):
                 long_term_memory_context=memory_context,
                 target_modules=target_modules,
                 on_module_complete=on_module_complete_callback,
-                is_day_ended=is_day_ended
+                is_day_ended=is_day_ended,
+                incremental=update_mode
             )
 
             if analysis_result.get('error'):

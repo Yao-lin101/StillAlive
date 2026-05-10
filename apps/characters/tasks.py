@@ -285,7 +285,8 @@ def generate_daily_reports(self):
                         persona_info,
                         previous_analysis_result=existing_report.analysis_result,
                         long_term_memory_context=memory_context,
-                        on_module_complete=on_module_complete_callback
+                        on_module_complete=on_module_complete_callback,
+                        incremental=True
                     )
                     
                     if 'error' in analysis_result:
@@ -346,7 +347,8 @@ def generate_daily_reports(self):
                         persona_info,
                         previous_analysis_result=None,
                         long_term_memory_context=memory_context,
-                        on_module_complete=on_module_complete_callback
+                        on_module_complete=on_module_complete_callback,
+                        incremental=True
                     )
                     
                     if 'error' in analysis_result:
