@@ -96,6 +96,18 @@ def analyze_module_structured(
             pv2.APP_STAY_V2_TRAP_RULE,
             pv2.CHAT_V2_TRAP_RULE
         ])
+        
+        # 注入时间线性增长约束 (系统级)
+        last_end_time = "00:00"
+        prev_data = previous_module_data or {}
+        slots = prev_data.get('slots', [])
+        locked_slots = [s for s in slots if s.get('locked')]
+        if locked_slots:
+            last_r = locked_slots[-1].get('range', '')
+            if '-' in last_r:
+                last_end_time = last_r.split('-')[-1].strip()
+        
+        trap_rules.append(pv2.FINDINGS_PROGRESS_RULE_TEMPLATE.format(last_end_time=last_end_time))
     elif module_key == 'title_summary':
         # 最终总结基于各模块结论和精简摘要，无需底层数据陷阱提示
         pass
@@ -182,7 +194,6 @@ def analyze_module_structured(
     elif module_key == 'findings':
         prev_data = previous_module_data or {}
         all_slots = prev_data.get('slots', [])
-        # 发现模块全量注入已锁定的发现，防止重复
         locked_slots = []
         for s in all_slots:
             if s.get('locked'):
@@ -190,9 +201,22 @@ def analyze_module_structured(
                 s_copy.pop('locked', None)
                 locked_slots.append(s_copy)
 
-        existing_section = pv2.SCHEDULE_EXISTING_SLOTS_TEMPLATE.format(
-            locked_slots_json=json.dumps(locked_slots, ensure_ascii=False, indent=2)
+        # 提取最后记录的时间点
+        last_end_time = "00:00"
+        if locked_slots:
+            # 这里 locked_slots 是剔除了 locked 字段的副本，直接取最后一个
+            last_r = all_slots[-1].get('range', '') # 还是从原数据取比较稳
+            if '-' in last_r:
+                last_end_time = last_r.split('-')[-1].strip()
+
+        # 使用发现专用的 Slot 模板，注入关键词
+        finding_keys = prev_data.get('finding_keys', [])
+        existing_section = pv2.FINDINGS_EXISTING_SLOTS_TEMPLATE.format(
+            locked_slots_json=json.dumps(locked_slots, ensure_ascii=False, indent=2),
+            last_end_time=last_end_time,
+            finding_keys="、".join(finding_keys) if finding_keys else "无"
         )
+        
         user_prompt = pv2.FINDINGS_USER_PROMPT.format(
             character_name=character_name,
             data_section=data_section,
