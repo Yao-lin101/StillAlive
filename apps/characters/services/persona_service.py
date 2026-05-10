@@ -3,7 +3,7 @@ import logging
 from django.utils import timezone
 from django.conf import settings
 from apps.characters.models import DailyReport, PersonaHistory
-from .llm_service import extract_text_from_anthropic_response, _clean_markdown_wrapper
+from . import llm_utils as utils
 from .prompts import (
     PERSONA_SYSTEM_PROMPT_DEFAULT,
     PERSONA_TREND_GUIDANCE_FIRST,
@@ -153,12 +153,12 @@ def update_system_persona(config, yesterday_report_text=None, trigger_type='sche
             messages=[{"role": "user", "content": user_prompt}]
         )
         
-        new_persona = extract_text_from_anthropic_response(response)
+        new_persona = utils.extract_text_from_response(response)
         
         if new_persona:
             new_persona = new_persona.strip()
             # 尝试清理 markdown 代码块并解析 JSON
-            cleaned_persona = _clean_markdown_wrapper(new_persona)
+            cleaned_persona = utils.clean_markdown_wrapper(new_persona)
             
             # 尝试修复可能的 JSON 格式问题并验证
             try:
@@ -167,7 +167,7 @@ def update_system_persona(config, yesterday_report_text=None, trigger_type='sche
                 end_idx = cleaned_persona.rfind('}')
                 if start_idx != -1 and end_idx != -1 and end_idx > start_idx:
                     json_str = cleaned_persona[start_idx:end_idx+1]
-                    parsed_json = json.loads(json_str)
+                    parsed_json = utils.safe_json_loads(json_str)
                     
                     # 将 JSON 重新组装为更好读的 Markdown 格式，供下游提示词或人类直接阅读
                     tags = " / ".join(parsed_json.get("identity_tags", []))
