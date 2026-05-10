@@ -220,17 +220,17 @@ PERSONA_TREND_GUIDANCE_UPDATE = """1. 观察趋势：从多天的数据中识别
 PERSONA_USER_PROMPT_DEFAULT = """【核心任务】：
 请仔细观察该用户的近期日常活动数据，穿透表象，推断出他在现实中的真实生活状态和隐藏属性。
 
-{{data_section}}
+{data_section}
 
 【参照档案】：
 该用户自己声称的人设背景：
-{{user_claimed_persona}}
+{user_claimed_persona} (状态: {user_persona_status})
 
 上次对他的暗中侧写档案：
-{{last_inferred_persona}}
+{last_inferred_persona}
 
 【重要要求】：
-{{trend_guidance}}
+{trend_guidance}
 2. 揭穿谎言：如果实际行为严重打脸了他"自己声称的人设"，请在侧写中毫不留情地将其标记为"假装努力"或"自欺欺人"。
 3. 高度抽象：侧写档案必须是对其性格、真实身份、生活状态的【宏观定性总结】。**绝对不允许在侧写中罗列具体日期（如"4月23日"）或具体的数据（如"用了16次"）**，你是提炼核心特征，不是在写财务报表！
 4. 严格输出格式：必须且只能输出合法的 JSON 格式。不要包含任何 markdown 代码块（如 ```json ），也不要包含任何寒暄、解释或前言后语。
@@ -246,17 +246,17 @@ JSON 格式要求如下：
 PERSONA_USER_PROMPT_CUSTOM = """【核心任务】：
 请以你的角色身份，仔细观察该用户的近期日常活动数据，穿透表象，推断出他在现实中的真实生活状态和隐藏属性。
 
-{{data_section}}
+{data_section}
 
 【参照档案】：
 该用户自己声称的人设背景：
-{{user_claimed_persona}}
+{user_claimed_persona} (状态: {user_persona_status})
 
 上次对他的暗中侧写档案：
-{{last_inferred_persona}}
+{last_inferred_persona}
 
 【重要要求】：
-{{trend_guidance}}
+{trend_guidance}
 2. 角色沉浸：**在 JSON 字段的值中，请务必全程保持你自身的角色身份、性格特点和语言风格（包含各种习惯用语和emoji），绝对不能出戏！**
 3. 对比反差：如果实际行为与他"自己声称的人设"有出入，请在侧写中用符合你人设的方式指出这种反差（比如"明明说在休息，其实接到了隐藏任务一直在忙！"）。
 4. 高度抽象：侧写档案必须是对其性格、真实身份、生活状态的【宏观定性总结】。**绝对不允许在侧写中罗列具体日期或具体的数据**，请提炼核心特征。

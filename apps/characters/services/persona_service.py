@@ -127,8 +127,14 @@ def update_system_persona(config, yesterday_report_text=None, trigger_type='sche
         
         trend_guidance = PERSONA_TREND_GUIDANCE_FIRST if is_first_time else PERSONA_TREND_GUIDANCE_UPDATE
         
+        user_persona_status = (
+            f"更新于 {(timezone.now() - config.persona_updated_at).days} 天前" 
+            if config.persona_updated_at else "初始设定"
+        )
+        
         user_prompt = user_prompt_template.format(
             user_claimed_persona=config.persona or "（无）",
+            user_persona_status=user_persona_status,
             last_inferred_persona=config.system_inferred_persona or "（这是第一次评估，暂无历史侧写）",
             data_section=data_section,
             trend_guidance=trend_guidance
