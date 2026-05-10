@@ -1,152 +1,192 @@
 import json
 import logging
+import re
 from django.utils import timezone
 from django.conf import settings
+from . import prompts as pv2
 from .prompts import (
-    DEFAULT_SYSTEM_PROMPT, COMMON_ANALYSIS_RULES,
-    INCREMENTAL_UPDATE_PROMPT, FINAL_SUMMARY_PROMPT,
-    CUSTOM_FORMAT_INSTRUCTIONS, DEFAULT_FORMAT_INSTRUCTIONS,
-    CUSTOM_QQ_FORMAT_SECTION, DEFAULT_QQ_FORMAT_SECTION,
-    META_INSTRUCTION_EXTRACTION_PROMPT, STRUCTURED_SYSTEM_PROMPT,
-    INITIAL_REPORT_PROMPT, META_INSTRUCTION_CHECK_PROMPT,
-    META_REDACTION_MATCH_PROMPT
+    DEFAULT_V2_CORE_IDENTITY, 
+    DEFAULT_V2_TRAITS, 
+    DEFAULT_V2_STYLE
 )
-from .data_service import ACTIVE_INTERVAL_MAX_GAP
+from . import llm_utils as utils
 
 logger = logging.getLogger(__name__)
 
-def extract_text_from_anthropic_response(response):
-    """
-    安全地从 Anthropic API 的 response 中提取文本，兼容带有 thinking block 的模型。
-    """
-    import re
-    result_text = None
-    thinking_content = None
+
+# ── 模块分析内部辅助函数 (Module Analysis Helpers) ──────────────────
+
+def _get_module_trap_rules(module_key):
+    """根据模块类型获取对应的数据陷阱规则"""
+    trap_rules = []
+    if module_key == 'schedule':
+        trap_rules.append(pv2.STEPS_V2_TRAP_RULE)
+    elif module_key == 'activity':
+        trap_rules.append(pv2.APP_STAY_V2_TRAP_RULE)
+    elif module_key == 'chat':
+        trap_rules.append(pv2.CHAT_V2_TRAP_RULE)
+    elif module_key == 'findings':
+        trap_rules.extend([pv2.STEPS_V2_TRAP_RULE, pv2.APP_STAY_V2_TRAP_RULE, pv2.CHAT_V2_TRAP_RULE])
+    return trap_rules
+
+def _build_module_system_prompt(module_key, character_name, persona_info, data_summary, meta_constraints, is_day_ended):
+    """构建模块化分析的 System Prompt"""
+    ai_persona = persona_info.get('ai_persona') or {}
+    core_identity = ai_persona.get('core_identity') or DEFAULT_V2_CORE_IDENTITY
+    personality_traits = ai_persona.get('personality_traits') or DEFAULT_V2_TRAITS
+    language_style = ai_persona.get('language_style') or DEFAULT_V2_STYLE
     
-    if hasattr(response, 'content'):
-        text_blocks = []
-        for i, block in enumerate(response.content):
-            block_type = getattr(block, 'type', 'unknown')
-            
-            if block_type == 'text':
-                if hasattr(block, 'text') and block.text is not None:
-                    text_blocks.append(block.text)
-            
-            if block_type == 'thinking':
-                if hasattr(block, 'thinking') and block.thinking is not None:
-                    thinking_content = block.thinking
-                    
-        if text_blocks:
-            # 代理 API 可能会将推理过程作为第一个 text block，将最终回复作为最后一个 text block
-            result_text = text_blocks[-1]
-        
-        if result_text is None:
-            try:
-                str_content = str(response.content[-1])
-                if str_content and len(str_content.strip()) > 0:
-                    if 'text=' in str_content and 'text=None' not in str_content:
-                        match = re.search(r"text='([^']+)'", str_content)
-                        if match:
-                            result_text = match.group(1)
-            except Exception:
-                pass
-                
-    if not result_text and hasattr(response, 'text'):
-        result_text = response.text
-        
-    # 以防部分 API 直接在一个 text block 里返回带有 <think> 标签的内容
-    if result_text:
-        result_text = re.sub(r'<think>.*?</think>', '', result_text, flags=re.DOTALL).strip()
-        
-    return result_text
-
-
-
-def _clean_markdown_wrapper(result_text):
-    """
-    清理 LLM 回复格式中多余的 markdown 代码块包裹
-    """
-    import re
-    result_text = result_text.strip()
+    format_instr_map = {
+        'title_summary': pv2.TITLE_SUMMARY_FORMAT_INSTRUCTIONS,
+        'schedule': pv2.SCHEDULE_FORMAT_INSTRUCTIONS,
+        'activity': pv2.ACTIVITY_FORMAT_INSTRUCTIONS,
+        'findings': pv2.FINDINGS_RECAP_FORMAT_INSTRUCTIONS if is_day_ended else pv2.FINDINGS_MONITOR_FORMAT_INSTRUCTIONS,
+        'chat': pv2.CHAT_FORMAT_INSTRUCTIONS,
+    }
     
-    # 情况 1：被 ```markdown 包裹
-    markdown_match = re.match(
-        r'^```markdown\s*\n(.*?)\n```\s*$',
-        result_text,
-        re.DOTALL
+    common_rules = pv2.BASE_V2_ANALYSIS_RULES
+    trap_rules = _get_module_trap_rules(module_key)
+    if trap_rules:
+        common_rules += "4. **数据局限性与推理指南**：\n" + "\n".join([f"   {rule}" for rule in trap_rules])
+
+    return pv2.V2_STRUCTURED_SYSTEM_PROMPT.format(
+        core_identity=core_identity,
+        personality_traits=personality_traits,
+        language_style=language_style,
+        character_name=character_name,
+        user_persona=persona_info.get('persona', '无'),
+        user_persona_status=(
+            f"更新于 {(timezone.now() - persona_info['persona_updated_at']).days} 天前" 
+            if persona_info.get('persona_updated_at') else "初始设定"
+        ),
+        system_inferred_persona=persona_info.get('system_inferred_persona', '无'),
+        common_rules=common_rules,
+        report_mode="模块化增量更新",
+        mode_hint="请按照指定的 JSON 格式输出，保持角色沉浸。",
+        cutoff_time=data_summary.get('data_cutoff_time', '未知'),
+        meta_instructions_section=f"\n# 特殊约束\n{meta_constraints}" if meta_constraints else "",
+        format_instructions=format_instr_map.get(module_key, "")
     )
-    if markdown_match:
-        return markdown_match.group(1).strip()
+
+def _build_module_user_prompt(module_key, character_name, data_section, previous_module_data, other_modules_context, memory_context):
+    """构建模块化分析的 User Prompt"""
+    if module_key == 'schedule' or module_key == 'activity':
+        prev_data = previous_module_data or {}
+        locked_slots = [s.copy() for s in prev_data.get('slots', []) if s.get('locked')]
+        for s in locked_slots: s.pop('locked', None)
+        
+        existing_section = pv2.SCHEDULE_EXISTING_SLOTS_TEMPLATE.format(
+            locked_slots_json=json.dumps(locked_slots, ensure_ascii=False, indent=2)
+        )
+        prompt_tmpl = pv2.SCHEDULE_USER_PROMPT if module_key == 'schedule' else pv2.ACTIVITY_USER_PROMPT
+        return prompt_tmpl.format(
+            character_name=character_name,
+            data_section=data_section,
+            existing_slots_section=existing_section
+        )
     
-    # 情况 2：被 ``` 包裹（不带 markdown 标签）
-    code_block_match = re.match(
-        r'^```\s*\n(.*?)\n```\s*$',
-        result_text,
-        re.DOTALL
+    elif module_key == 'findings':
+        return pv2.FINDINGS_USER_PROMPT.format(character_name=character_name, data_section=data_section)
+    
+    elif module_key == 'chat':
+        prev_data = previous_module_data or {}
+        locked_items = prev_data.get('items', [])
+        existing_section = pv2.CHAT_EXISTING_ITEMS_TEMPLATE.format(
+            locked_items_json=json.dumps(locked_items, ensure_ascii=False, indent=2)
+        )
+        return pv2.CHAT_USER_PROMPT.format(
+            character_name=character_name,
+            chat_section=data_section, 
+            existing_items_section=existing_section
+        )
+    
+    else: # title_summary
+        return pv2.TITLE_SUMMARY_USER_PROMPT.format(
+            character_name=character_name,
+            data_section=data_section,
+            other_modules_section=f"\n# 各模块分析结论汇聚\n{other_modules_context}" if other_modules_context else "",
+            memory_section=f"\n# 长期记忆/历史背景\n{memory_context}" if memory_context else ""
+        )
+
+def analyze_module_structured(
+    module_key,
+    data_summary,
+    character_name,
+    persona_info,
+    previous_module_data=None,
+    meta_constraints=None,
+    long_term_memory_context=None,
+    other_modules_context=None,
+    compact_mode=False,
+    redaction_items=None,
+    is_day_ended=False
+):
+    """单模块结构化分析核心函数"""
+    api_key = getattr(settings, 'ANTHROPIC_API_KEY', None)
+    if not api_key: return {"error": "API Key not configured"}
+
+    # 1. 准备 Prompts
+    system_prompt = _build_module_system_prompt(
+        module_key, character_name, persona_info, data_summary, meta_constraints, is_day_ended
     )
-    if code_block_match:
-        return code_block_match.group(1).strip()
     
-    # 情况 3：开头有 ```markdown 或 ``` 但结尾没有（不完整的代码块）
-    if result_text.startswith('```markdown'):
-        result_text = result_text[len('```markdown'):].strip()
-        if result_text.startswith('\n'):
-            result_text = result_text[1:].strip()
-    elif result_text.startswith('```'):
-        result_text = result_text[3:].strip()
-        if result_text.startswith('\n'):
-            result_text = result_text[1:].strip()
-            
-    # 情况 4：结尾有 ```
-    if result_text.endswith('```'):
-        result_text = result_text[:-3].strip()
+    if module_key == 'chat':
+        data_content = utils.format_chat_logs(data_summary)
+    else:
+        data_content = utils.build_data_section(
+            data_summary, data_summary.get('date'), data_summary.get('data_cutoff_time'), 
+            is_day_ended=is_day_ended,
+            exclude_apps=(module_key == 'schedule'),
+            exclude_steps_and_ranges=(module_key == 'activity'),
+            compact_mode=compact_mode
+        )
+    
+    user_prompt = _build_module_user_prompt(
+        module_key, character_name, data_content, previous_module_data, other_modules_context, long_term_memory_context
+    )
+    
+    # 2. 脱敏与强化提示
+    user_prompt = utils.apply_redactions(user_prompt, redaction_items)
+    if meta_constraints and meta_constraints.strip():
+        user_prompt += f"\n\n**再次提醒**：请务必检查并严格遵守以下【特殊约束】，确保输出内容符合用户的最新指示：\n{meta_constraints}"
+
+    # 3. 打印调试信息 (恢复被误删的部分)
+    print(f"\n{'='*60}")
+    print(f"DEBUG: Analyzing Module [{module_key}]")
+    print(f"{'='*60}")
+    print(f"\n--- [SYSTEM PROMPT] ---\n{system_prompt}")
+    print(f"\n--- [USER PROMPT] ---\n{user_prompt}")
+    print(f"\n{'='*60}\n")
+
+    # 4. 调用 LLM
+    try:
+        import anthropic
+        base_url = getattr(settings, 'ANTHROPIC_BASE_URL', None)
+        client = anthropic.Anthropic(api_key=api_key, base_url=base_url) if base_url else anthropic.Anthropic(api_key=api_key)
         
-    return result_text
-
-
-
-def _get_data_keys(data_summary):
-    """
-    从数据摘要中提取所有可能的敏感键值（应用名、标题、话题等）
-    """
-    keys = set()
-    
-    # 1. 手机应用名 (从 summary 提取键名)
-    if 'phone_app_summary' in data_summary and isinstance(data_summary['phone_app_summary'], dict):
-        keys.update(data_summary['phone_app_summary'].keys())
-    
-    # 2. 电脑应用名 (从 summary 提取键名)
-    if 'computer_app_summary' in data_summary and isinstance(data_summary['computer_app_summary'], dict):
-        keys.update(data_summary['computer_app_summary'].keys())
+        response = client.messages.create(
+            model=getattr(settings, 'ANTHROPIC_MODEL', 'claude-3-5-sonnet-20241022'),
+            system=system_prompt,
+            temperature=0.7,
+            max_tokens=8192,
+            messages=[{"role": "user", "content": user_prompt}]
+        )
         
-    # 3. 详细时间段中的应用和标题 (电脑端的 titles)
-    # 手机端
-    if 'phone_app_by_time_range' in data_summary:
-        for range_apps in data_summary['phone_app_by_time_range'].values():
-            if isinstance(range_apps, dict):
-                keys.update(range_apps.keys())
-    
-    # 电脑端 (包含 app 名和可能的标题)
-    if 'computer_app_by_time_range' in data_summary:
-        for range_apps in data_summary['computer_app_by_time_range'].values():
-            if isinstance(range_apps, dict):
-                keys.update(range_apps.keys())
-    
-    # 4. 聊天记录 (目前认为话题本身已足够模糊，不需要作为脱敏 Key，故移除)
-    # if 'qq_messages' in data_summary:
-    #     ...
-                
-    return [k for k in keys if k and k.strip()]
+        result = utils.safe_json_loads(utils.clean_markdown_wrapper(utils.extract_text_from_response(response)))
+        return result or {"error": "Failed to parse LLM JSON response"}
+    except Exception as e:
+        logger.error(f"Module {module_key} analysis failed: {str(e)}")
+        return {"error": str(e)}
 
+
+# ── 流程编排内部辅助函数 (Workflow Helpers) ────────────────────
 
 def _extract_meta_instructions(client, model, private_blocks, data_keys=[]):
-    """
-    第一阶段：从私聊记录中提取元指令和脱敏需求 (采用两步审计法)
-    """
+    """从私聊记录中提取元指令和脱敏需求 (采用两步审计法)"""
     if not private_blocks:
         return {"instructions": [], "redactions": [], "has_any": False}
 
-    # 格式化私聊记录供提取使用
+    # 格式化私聊记录
     chat_content = ""
     for block in private_blocks:
         if '用户' in block: chat_content += f"用户: {block['用户']}\n"
@@ -156,442 +196,200 @@ def _extract_meta_instructions(client, model, private_blocks, data_keys=[]):
         chat_content += "---\n"
 
     try:
-        # --- 步骤 1: 提取指令与脱敏意向 (不带 data_keys) ---
-        prompt_step1 = META_INSTRUCTION_CHECK_PROMPT.format(private_chat_content=chat_content)
-        
         print("\n" + "="*30 + " [AUDIT STAGE 1: INTENT] " + "="*30)
+        prompt_step1 = pv2.META_INSTRUCTION_CHECK_PROMPT.format(private_chat_content=chat_content)
         response_step1 = client.messages.create(
-            model=model,
-            max_tokens=1000,
-            temperature=0,
+            model=model, max_tokens=1000, temperature=0,
             messages=[{"role": "user", "content": prompt_step1}]
         )
-        raw_res1 = extract_text_from_anthropic_response(response_step1)
+        raw_res1 = utils.extract_text_from_response(response_step1)
         print(f"STAGE 1 RAW RESPONSE:\n{raw_res1}")
-        res1 = _safe_json_loads_internal(raw_res1) or {"instructions": [], "needs_redaction": False}
+        res1 = utils.safe_json_loads(raw_res1) or {"instructions": [], "needs_redaction": False}
         
         instructions = res1.get('instructions', [])
         needs_redaction = res1.get('needs_redaction', False)
         print(f"STAGE 1 DECISION: Instructions={instructions}, NeedsRedaction={needs_redaction}")
         redactions = []
 
-        # --- 步骤 2: 精准脱敏匹配 (仅在需要时执行) ---
+        # --- 步骤 2: 精准脱敏匹配 ---
         if needs_redaction and data_keys:
             sorted_keys = sorted(data_keys)
             data_keys_str = "\n".join([f"- {k}" for k in sorted_keys])
-            prompt_step2 = META_REDACTION_MATCH_PROMPT.format(
-                private_chat_content=chat_content,
-                data_keys=data_keys_str
+            prompt_step2 = pv2.META_REDACTION_MATCH_PROMPT.format(
+                private_chat_content=chat_content, data_keys=data_keys_str
             )
-            
             print("\n" + "="*30 + " [AUDIT STAGE 2: REDACTION] " + "="*30)
             response_step2 = client.messages.create(
-                model=model,
-                max_tokens=2000,
-                temperature=0,
+                model=model, max_tokens=2000, temperature=0,
                 messages=[{"role": "user", "content": prompt_step2}]
             )
-            raw_res2 = extract_text_from_anthropic_response(response_step2)
+            raw_res2 = utils.extract_text_from_response(response_step2)
             print(f"STAGE 2 RAW RESPONSE:\n{raw_res2}")
-            redactions = _safe_json_loads_internal(raw_res2) or []
+            redactions = utils.safe_json_loads(raw_res2) or []
             if not isinstance(redactions, list): redactions = []
             print(f"STAGE 2 DECISION: Redactions={redactions}")
-
-        has_any = bool(instructions or redactions)
-        print(f"AUDIT RESULT: Instructions({len(instructions)}), Redactions({len(redactions)}), HasAny: {has_any}")
-        print("="*80 + "\n")
         
-        return {
-            "instructions": instructions,
-            "redactions": redactions,
-            "has_any": has_any
-        }
-
+        return {"instructions": instructions, "redactions": redactions, "has_any": (bool(instructions) or bool(redactions))}
     except Exception as e:
-        logger.error(f"Failed to extract meta-instructions (Two-Step): {e}")
+        logger.error(f"Audit stage failed: {str(e)}")
         return {"instructions": [], "redactions": [], "has_any": False}
 
-def _safe_json_loads_internal(text):
-    """内部使用的 JSON 解析，包含清理逻辑"""
-    if not text: return None
-    import re, json
-    try:
-        processed = text.replace('\\', '\\\\').replace('\\\\"', '\\"')
-        json_match = re.search(r'(\{.*\}|\[.*\])', processed, re.DOTALL)
-        if json_match:
-            return json.loads(json_match.group(1))
-        return json.loads(text.strip())
-    except:
-        return None
-
-
-
-def _build_data_section(data_summary, target_date_str, weekday_str, cutoff_time_str, is_day_ended=False, include_system_prompt=True, exclude_apps=False, exclude_steps_and_ranges=False, compact_mode=False):
-    """
-    统一格式化数据概览和应用使用情况，返回用于注入 prompt 的文本
-    """
-    def format_hours(hours_list):
-        if not hours_list:
-            return "无记录"
-        return ", ".join(f"{h}点" for h in hours_list)
-
-    def format_time_ranges(ranges_list):
-        if not ranges_list:
-            return "无记录"
-        return ", ".join(ranges_list)
-
-    global_ranges = data_summary.get('global_active_time_ranges', [])
-    
-    data_section = f"""
-## 数据概览
-- 日期: {target_date_str}{weekday_str}（据此推断工作日或节假日）
-- 总记录数: {data_summary.get('total_records', 0)}
-"""
-    
-    if not exclude_steps_and_ranges and global_ranges and not compact_mode:
-        ranges_str = "\n".join([f"- {r}" for r in global_ranges])
-        data_section += f"""
-## 近期连续活跃周期
-（注：已自动合并跨天活动，相差{ACTIVE_INTERVAL_MAX_GAP}分钟以内的活动将被连接。两个周期之间的空白时间代表设备脱机、人在休息或睡眠。请重点关注这些“未列出的空白时间”来推断脱机长短。）
-{ranges_str}
-"""
-
-    data_section += f"""
-- 数据截止时间: {cutoff_time_str}
-"""
-    
-    if not exclude_apps and data_summary.get('phone_app_summary'):
-        data_section += f"\n## 手机应用（总计前20）\n{json.dumps(data_summary['phone_app_summary'], ensure_ascii=False)}\n"
-        if not compact_mode and data_summary.get('phone_app_by_time_range'):
-            # 不过滤时间范围，保留所有应用使用记录
-            filtered_time_ranges = data_summary['phone_app_by_time_range']
-            
-            if filtered_time_ranges:
-                data_section += f"\n## 手机应用（按时间范围）\n{json.dumps(filtered_time_ranges, ensure_ascii=False)}\n"
-    
-    if not exclude_apps and data_summary.get('computer_app_summary'):
-        data_section += f"\n## 电脑应用（总计前20）\n{json.dumps(data_summary['computer_app_summary'], ensure_ascii=False)}\n"
-        if not compact_mode and data_summary.get('computer_app_by_time_range'):
-            # 不过滤时间范围，保留所有应用使用记录
-            filtered_time_ranges = data_summary['computer_app_by_time_range']
-            
-            if filtered_time_ranges:
-                data_section += f"\n## 电脑应用（按时间范围）\n{json.dumps(filtered_time_ranges, ensure_ascii=False)}\n"
-    
-    if not exclude_steps_and_ranges and data_summary.get('steps_summary'):
-        total_steps = data_summary['steps_summary'].get('total', 0)
-        data_section += f"\n## 今日总步数: {total_steps}\n"
-        if not compact_mode and data_summary.get('steps_by_hour'):
-            data_section += f"\n## 步数（按小时累计）\n{json.dumps(data_summary['steps_by_hour'], ensure_ascii=False)}\n"
-    
-    # 处理并展示QQ聊天记录和群聊总结
-    if data_summary.get('qq_messages'):
-        qq_messages = data_summary['qq_messages']
-        
-        private_blocks = []
-        group_blocks = []
-        
-        for msg_record in qq_messages:
-            if isinstance(msg_record, dict):
-                msg_type = msg_record.get('message_type')
-                message_data = msg_record.get('message_data', [])
-                if msg_type == 'private' and message_data:
-                    private_blocks.extend(message_data)
-                elif msg_type == 'group' and message_data:
-                    group_blocks.extend(message_data)
-                    
-        if private_blocks:
-            data_section += f"\n## 这是用户今天和你的私人聊天内容：\n"
-            for block in private_blocks:
-                time_str = block.get('时间', '未知时间')
-                data_section += f"[{time_str}]\n"
-                
-                # 处理话题和总结
-                if '话题' in block:
-                    data_section += f"话题: {block['话题']}\n"
-                if '总结' in block:
-                    data_section += f"总结: {block['总结']}\n"
-                
-                # 处理用户发言
-                if '用户' in block:
-                    user_message = block['用户']
-                    data_section += f"用户: {user_message}\n"
-                
-                # 处理机器人回复
-                if '你的回复' in block:
-                    bot_reply = block['你的回复']
-                    # 对机器人回复进行截断
-                    if len(bot_reply) > 100:
-                        # 保留完整的第一行，然后截断
-                        lines = bot_reply.split('\n')
-                        if lines:
-                            truncated_reply = lines[0] + '...'
-                            data_section += f"你: {truncated_reply}\n"
-                    else:
-                        data_section += f"你: {bot_reply}\n"
-                
-                data_section += "\n"
-                
-        if group_blocks:
-            data_section += f"\n## QQ群聊内容总结\n"
-            
-            # 按群名称聚合
-            grouped_chats = {}
-            for block in group_blocks:
-                group_name = block.get('群名称', '未知群聊')
-                if group_name not in grouped_chats:
-                    grouped_chats[group_name] = {
-                        'bot_nickname': block.get('你在本群昵称', '未知'),
-                        'user_nickname': block.get('用户在本群昵称', '未知'),
-                        'topics': []
-                    }
-                grouped_chats[group_name]['topics'].append({
-                    'time': block.get('时间', '未知'),
-                    'summary': block.get('话题总结', '')
-                })
-                
-            for group_name, info in grouped_chats.items():
-                data_section += f"### 【{group_name}】\n"
-                data_section += f"- 你的群昵称: {info['bot_nickname']}\n"
-                data_section += f"- 用户的群昵称: {info['user_nickname']}\n\n"
-                for t in info['topics']:
-                    data_section += f"#### [{t['time']}]\n{t['summary']}\n\n"
-            
-    return data_section
-
-
-
-def analyze_with_llm(
-    aggregated_data,
-    character_name,
-    persona=None,
-    ai_persona=None,
-    system_inferred_persona=None,
-    previous_report=None,
-    is_incremental=False,
-    previous_cutoff_time=None,
-    long_term_memory_context=None,
-    include_important_events=True,
-):
-    """
-    使用 Anthropic API 分析数据 (兼容 MiniMax)
-    """
+def _perform_audit_stage(data_summary):
+    """第一阶段：审计与脱敏识别"""
     api_key = getattr(settings, 'ANTHROPIC_API_KEY', None)
     model = getattr(settings, 'ANTHROPIC_MODEL', 'claude-3-5-sonnet-20241022')
     base_url = getattr(settings, 'ANTHROPIC_BASE_URL', None)
     
-    if not api_key:
-        logger.warning("Anthropic API key not configured, skipping LLM analysis")
-        return {
-            'markdown': '## 分析失败\n\n由于 API 未配置，无法进行 AI 分析。',
-            'error': 'Anthropic API key not configured'
-        }
+    import anthropic
+    client = anthropic.Anthropic(api_key=api_key, base_url=base_url) if base_url else anthropic.Anthropic(api_key=api_key)
+
+    private_blocks = []
+    for msg_record in data_summary.get('qq_messages', []):
+        if isinstance(msg_record, dict) and msg_record.get('message_type') == 'private':
+            private_blocks.extend(msg_record.get('message_data', []))
     
-    try:
-        import anthropic
+    data_keys = utils.get_redaction_keys(data_summary)
+    audit_result = _extract_meta_instructions(client, model, private_blocks, data_keys)
+    
+    return {
+        "meta_instructions": "\n".join(audit_result.get('instructions', [])),
+        "redaction_items": audit_result.get('redactions', [])
+    }
+
+def _merge_module_result(module_key, result, prev_sections, is_day_ended, extra_meta):
+    """将 LLM 返回的结果与现有数据进行合并与锁定逻辑处理"""
+    prev_mod_data = prev_sections.get(module_key) or {}
+    
+    if module_key in ['schedule', 'activity', 'findings']:
+        final_slots = [s for s in prev_mod_data.get('slots', []) if s.get('locked')]
+        new_slots = result.get('new_slots') or result.get('slots') or []
         
-        client_kwargs = {'api_key': api_key}
-        if base_url:
-            client_kwargs['base_url'] = base_url
+        if isinstance(new_slots, list):
+            final_slots.extend(new_slots)
+            # 锁定规则：除了最后一个全锁定
+            if module_key in ['schedule', 'activity']:
+                for i, s in enumerate(final_slots):
+                    s['locked'] = (i < len(final_slots) - 1)
+            else: # findings
+                if is_day_ended: final_slots = new_slots # 结项分析重写
+                else: final_slots = prev_mod_data.get('slots', []) # 白天保留
         
-        client = anthropic.Anthropic(**client_kwargs)
-        
-        data_summary = {
-            'date': aggregated_data.get('date'),
-            'total_records': aggregated_data.get('total_records', 0),
-            'active_time_ranges': aggregated_data.get('active_time_ranges', []),
-            'phone_app_summary': aggregated_data.get('phone_app_summary', {}),
-            'computer_app_summary': aggregated_data.get('computer_app_summary', {}),
-            'phone_app_by_time_range': aggregated_data.get('phone_app_by_time_range', {}),
-            'computer_app_by_time_range': aggregated_data.get('computer_app_by_time_range', {}),
-            'steps_summary': aggregated_data.get('steps_summary', {}),
-            'steps_by_hour': aggregated_data.get('steps_by_hour', {}),
-            'qq_messages_summary': aggregated_data.get('qq_messages_summary', {}),
-            'qq_messages': aggregated_data.get('qq_messages', []),
-            'last_record_time': aggregated_data.get('last_record_time'),
-            'data_cutoff_time': aggregated_data.get('data_cutoff_time'),
-            'yesterday_active_time_ranges': aggregated_data.get('yesterday_active_time_ranges', []),
-            'day_before_yesterday_active_time_ranges': aggregated_data.get('day_before_yesterday_active_time_ranges', []),
-            'global_active_time_ranges': aggregated_data.get('global_active_time_ranges', [])
+        return {
+            "status": "done",
+            "overall": result.get('overall') or prev_mod_data.get('overall'),
+            "slots": final_slots,
+            "updated_at": timezone.now().isoformat(),
+            **extra_meta
         }
-        
-        # 1. 指令提取与脱敏审计阶段
-        private_blocks = []
-        for msg_record in data_summary.get('qq_messages', []):
-            if isinstance(msg_record, dict) and msg_record.get('message_type') == 'private':
-                private_blocks.extend(msg_record.get('message_data', []))
-        
-        data_keys = _get_data_keys(data_summary)
-        audit_result = _extract_meta_instructions(client, model, private_blocks, data_keys)
-        
-        meta_instructions = "\n".join(audit_result.get('instructions', []))
-        redaction_items = audit_result.get('redactions', [])
-        has_meta = audit_result.get('has_any', False)
-        
-        # 2. 构建 System Prompt 
-        ai_persona = ai_persona or {}
-        core_identity = ai_persona.get('core_identity', '')
-        personality_traits = ai_persona.get('personality_traits', '')
-        language_style = ai_persona.get('language_style', '')
-        
-        if core_identity or personality_traits:
-            ai_identity_desc = f"{core_identity}\n{personality_traits}"
-        else:
-            ai_identity_desc = DEFAULT_SYSTEM_PROMPT
 
-        if language_style:
-            ai_identity_desc += f"\n## 语言风格\n{language_style}\n"
+    elif module_key == 'chat':
+        final_items = prev_mod_data.get('items', [])
+        new_items = result.get('new_items') or result.get('items') or []
+        if isinstance(new_items, list): final_items.extend(new_items)
         
-        cutoff_time_str = data_summary.get('data_cutoff_time', '未知')
-        target_date_str = data_summary.get('date', '')
-        
-        is_day_ended = not is_incremental
-        if cutoff_time_str and cutoff_time_str != '未知' and target_date_str:
-            try:
-                cutoff_dt = timezone.datetime.fromisoformat(cutoff_time_str)
-                target_date_obj = timezone.datetime.fromisoformat(target_date_str).date()
-                local_cutoff_dt = timezone.localtime(cutoff_dt)
-                if local_cutoff_dt.date() > target_date_obj:
-                    is_day_ended = True
-                else:
-                    is_day_ended = False
-            except Exception:
-                pass
-        
-        report_mode = "全天结案总结" if is_day_ended else "日间增量更新"
-        mode_hint = "请对全天进行复盘，给出最终定性结论。" if is_day_ended else "请以'截至目前'的视角进行锐评，推测后续活动。"
-        
-        # 决定输出格式要求
-        qq_summary = data_summary.get('qq_messages_summary', {})
-        has_qq = qq_summary.get('total_message_blocks', 0) > 0
-        has_custom_ai_persona = bool(core_identity or personality_traits or language_style)
-        
-        if has_custom_ai_persona:
-            qq_sec = CUSTOM_QQ_FORMAT_SECTION if has_qq else ""
-            format_instructions = CUSTOM_FORMAT_INSTRUCTIONS.format(qq_format_section=qq_sec)
-        else:
-            qq_sec = DEFAULT_QQ_FORMAT_SECTION if has_qq else ""
-            format_instructions = DEFAULT_FORMAT_INSTRUCTIONS.format(qq_format_section=qq_sec)
+        return {
+            "status": "done",
+            "overall": result.get('overall') or prev_mod_data.get('overall'),
+            "items": final_items,
+            "updated_at": timezone.now().isoformat(),
+            **extra_meta
+        }
 
-        # 准备用户画像信息（包含长期记忆）
-        user_persona_full = persona.strip() if persona else "无"
-        if include_important_events and long_term_memory_context and long_term_memory_context.strip():
-            user_persona_full += f"\n\n### 历史重要记忆\n{long_term_memory_context.strip()}"
+    else: # title_summary
+        return {
+            "status": "done",
+            "title": result.get('title') or prev_mod_data.get('title'),
+            "summary": result.get('summary') or prev_mod_data.get('summary'),
+            "updated_at": timezone.now().isoformat(),
+            **extra_meta
+        }
 
-        # 动态构建特殊指令板块
-        meta_instructions_section = ""
-        if meta_instructions and meta_instructions.strip():
-            meta_instructions_section = f"""# 本次任务特殊约束 (Meta-Instructions)
-<special_constraints>
-{meta_instructions}
-</special_constraints>
-**保密执行准则**：由于存在上述特殊约定，你在生成日报时，可以根据你的人设风格将这些变动或禁令比作“隐藏任务”、“秘密约定”或“私下沟通”等方式略带提及（以增加互动感）。但你必须严格遵守约束，绝对禁止在报告中泄露任何被要求保密的具体细节内容。"""
+def analyze_all_modules_sequential(
+    aggregated_data,
+    character_name,
+    persona_info,
+    previous_analysis_result=None,
+    long_term_memory_context=None,
+    target_modules=None,
+    on_module_complete=None,
+    is_day_ended=False
+):
+    """顺序执行所有模块分析 (重构版)"""
+    # 1. 审计阶段
+    audit = _perform_audit_stage(aggregated_data)
+    
+    prev_result = previous_analysis_result or {}
+    prev_sections = prev_result.get('sections', {})
+    new_sections = prev_sections.copy()
+    
+    modules = ['schedule', 'activity', 'findings', 'chat', 'title_summary']
+    
+    for mod in modules:
+        # 模块过滤逻辑
+        if target_modules:
+            if isinstance(target_modules, str) and target_modules != mod: continue
+            if isinstance(target_modules, (list, tuple)) and mod not in target_modules: continue
 
-        system_prompt = STRUCTURED_SYSTEM_PROMPT.format(
-            ai_identity_desc=ai_identity_desc,
-            character_name=character_name,
-            user_persona=user_persona_full,
-            system_inferred_persona=system_inferred_persona.strip() if system_inferred_persona else "尚无深度侧写",
-            common_rules=COMMON_ANALYSIS_RULES,
-            report_mode=report_mode,
-            mode_hint=mode_hint,
-            cutoff_time=cutoff_time_str,
-            meta_instructions_section=meta_instructions_section,
-            format_instructions=format_instructions
+        logger.info(f"Analyzing module: {mod}")
+        
+        # 增量检测与跳过逻辑
+        extra_meta = {}
+        if mod == 'chat':
+            messages = aggregated_data.get('qq_messages', [])
+            if not messages:
+                new_sections[mod] = {"status": "skipped", "updated_at": timezone.now().isoformat()}
+                continue
+            current_msg_count = sum(len(b.get('message_data', [])) for b in messages)
+            prev_chat = prev_sections.get('chat', {})
+            if prev_chat.get('status') == 'done' and prev_chat.get('_msg_count') == current_msg_count:
+                continue
+            extra_meta = {'_msg_count': current_msg_count}
+
+        # 构建模块间上下文
+        other_context = ""
+        if mod == 'title_summary':
+            for m in ['schedule', 'activity', 'findings', 'chat']:
+                if m in new_sections and new_sections[m].get('status') == 'done':
+                    summary = new_sections[m].get('overall') or new_sections[m].get('summary') or new_sections[m].get('content')
+                    if summary: other_context += f"【{m} 模块结论】：{summary}\n"
+
+        # 执行单模块分析
+        is_target = target_modules and (
+            (isinstance(target_modules, str) and target_modules == mod) or
+            (isinstance(target_modules, (list, tuple)) and mod in target_modules)
         )
+        mod_prev = None if is_target else prev_sections.get(mod)
 
-        # 3. 构建 User Prompt (Data Only)
-        data_section = _build_data_section(data_summary, target_date_str, "", cutoff_time_str, is_day_ended=is_day_ended, include_system_prompt=False)
-        
-        if not is_day_ended and previous_report and previous_report.strip():
-            import re
-            clean_previous_report = re.sub(r'\n+---\n+\*数据截止至：.*?\*\s*$', '', previous_report.strip())
-            prev_time_str = "之前"
-            if previous_cutoff_time:
-                prev_time_str = timezone.localtime(previous_cutoff_time).strftime('%Y-%m-%d %H:%M')
-            
-            user_prompt = INCREMENTAL_UPDATE_PROMPT_V2.format(
-                prev_time_str=prev_time_str,
-                curr_time_str=cutoff_time_str,
-                clean_previous_report=clean_previous_report,
-                data_section=data_section
-            )
-        elif is_day_ended and previous_report and previous_report.strip():
-            import re
-            clean_previous_report = re.sub(r'\n+---\n+\*数据截止至：.*?\*\s*$', '', previous_report.strip())
-            user_prompt = FINAL_SUMMARY_PROMPT_V2.format(
-                clean_previous_report=clean_previous_report,
-                data_section=data_section
-            )
-        else:
-            user_prompt = INITIAL_REPORT_PROMPT.format(
-                character_name=character_name,
-                data_section=data_section
-            )
-
-        # 4. 执行数据脱敏 (Data Redaction)
-        # 仅针对即将发送给 LLM 的 user_prompt 进行全局替换
-        if redaction_items:
-            mask_text = "【隐藏剧情】"
-            print(f"Applying redactions: {len(redaction_items)} items...")
-            # 如果是列表，循环替换为统一遮盖词
-            if isinstance(redaction_items, list):
-                for original in redaction_items:
-                    if original and original.strip():
-                        user_prompt = user_prompt.replace(original, mask_text)
-            # 兼容旧的字典格式 (以防万一)
-            elif isinstance(redaction_items, dict):
-                for original, replacement in redaction_items.items():
-                    if original and original.strip():
-                        user_prompt = user_prompt.replace(original, replacement)
-
-        # 5. 动态追加末尾强化提醒 (针对特殊约束内容复述)
-        if meta_instructions and meta_instructions.strip():
-            user_prompt += f"\n\n**再次提醒**：请务必检查并严格遵守以下【本次任务特殊约束】，确保输出内容完全符合用户的最新指示：\n{meta_instructions}"
-
-        print("\n" + "="*20 + " LLM Analysis Prompt Start " + "="*20)
-        print(f"System Prompt:\n{system_prompt}")
-        print(f"\nUser Prompt:\n{user_prompt}")
-        print("="*20 + " LLM Analysis Prompt End " + "="*20 + "\n")
-        
-        logger.debug("=== LLM Analysis Prompt Start ===")
-        logger.debug(f"System Prompt:\n{system_prompt}")
-        logger.debug(f"User Prompt:\n{user_prompt}")
-        logger.debug("=== LLM Analysis Prompt End ===")
-
-        response = client.messages.create(
-            model=model,
-            system=system_prompt,
-            temperature=0.8,
-            max_tokens=8192,
-            messages=[
-                {
-                    "role": "user",
-                    "content": user_prompt
-                }
-            ]
+        result = analyze_module_structured(
+            mod, aggregated_data, character_name, persona_info,
+            previous_module_data=mod_prev,
+            meta_constraints=audit['meta_instructions'],
+            long_term_memory_context=long_term_memory_context,
+            other_modules_context=other_context,
+            compact_mode=(mod == 'title_summary'),
+            redaction_items=audit['redaction_items'],
+            is_day_ended=is_day_ended
         )
         
-        if not response.content or len(response.content) == 0:
-            logger.error("LLM response is empty")
-            return {'markdown': '## 分析失败\n\nAI 返回了空响应。', 'error': 'LLM response is empty'}
-            
-        result_text = extract_text_from_anthropic_response(response)
-        result_text = _clean_markdown_wrapper(result_text)
-        
-        # 拼接截止时间
-        if cutoff_time_str:
-            try:
-                dt = timezone.datetime.fromisoformat(cutoff_time_str)
-                formatted_time = dt.strftime('%Y-%m-%d %H:%M')
-                result_text += f"\n\n---\n*数据截止至：{formatted_time}*"
-            except Exception:
-                result_text += f"\n\n---\n*数据截止至：{cutoff_time_str}*"
-        
-        return {'markdown': result_text}
-        
-    except Exception as e:
-        logger.error(f"LLM analysis failed: {str(e)}")
-        import traceback
-        logger.error(traceback.format_exc())
-        return {'markdown': f'## 分析失败\n\n分析过程中发生错误：{str(e)}', 'error': str(e)}
+        # 合并结果
+        if "error" not in result:
+            new_sections[mod] = _merge_module_result(mod, result, prev_sections, is_day_ended, extra_meta)
+        else:
+            # --- 核心修复：更严格的旧数据保护逻辑 ---
+            # 只要 prev_sections 里有数据（无论 status 是什么），都应该保留
+            if mod in prev_sections:
+                old_data = prev_sections[mod].copy()
+                old_data.update({
+                    'last_error': result["error"],
+                    'updated_at': timezone.now().isoformat(),
+                    'status': old_data.get('status', 'error') # 保持原状态，除非原来就没状态
+                })
+                new_sections[mod] = old_data
+                logger.warning(f"Module {mod} analysis failed, preserved existing data. Error: {result['error']}")
+            else:
+                new_sections[mod] = {"status": "error", "error": result["error"], "updated_at": timezone.now().isoformat()}
+
+        if on_module_complete:
+            on_module_complete(new_sections)
+
+    return {"version": 2, "markdown": prev_result.get('markdown', ''), "sections": new_sections}

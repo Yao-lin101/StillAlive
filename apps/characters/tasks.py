@@ -8,8 +8,7 @@ from .models import WillConfig, CharacterStatus, DailyReportConfig, DailyReport
 import logging
 
 from .services.data_service import aggregate_status_data
-from .services.llm_service import analyze_with_llm
-from .services.llm_service_v2 import analyze_all_modules_sequential
+from .services.llm_service import analyze_all_modules_sequential
 from .services.persona_service import update_system_persona
 from .services.important_event_service import (
     extract_important_events_for_report,

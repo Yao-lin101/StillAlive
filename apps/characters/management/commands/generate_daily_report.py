@@ -3,8 +3,7 @@ from django.utils import timezone
 from datetime import date, datetime, timedelta
 from apps.characters.models import Character, DailyReportConfig, DailyReport
 from apps.characters.services.data_service import aggregate_status_data
-from apps.characters.services.llm_service import analyze_with_llm
-from apps.characters.services.llm_service_v2 import analyze_all_modules_sequential
+from apps.characters.services.llm_service import analyze_all_modules_sequential
 from apps.characters.services.important_event_service import format_events_for_prompt, retrieve_important_events
 import logging
 

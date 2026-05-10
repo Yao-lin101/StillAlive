@@ -12,7 +12,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from apps.characters.models import DailyReport, ImportantEvent
-from .llm_service import extract_text_from_anthropic_response
+from .llm_utils import extract_text_from_response
 
 
 logger = logging.getLogger(__name__)
@@ -305,7 +305,7 @@ def extract_important_events_for_report(report, force=False):
         max_tokens=4096,
         messages=[{'role': 'user', 'content': prompt}],
     )
-    result_text = extract_text_from_anthropic_response(response)
+    result_text = extract_text_from_response(response)
     raw_events = _parse_json_array(result_text)
 
     seen_keys = set()
@@ -688,7 +688,7 @@ def _rewrite_retrieval_query_with_llm(character, aggregated_data):
             max_tokens=max_tokens,
             messages=[{'role': 'user', 'content': prompt}],
         )
-        result_text = extract_text_from_anthropic_response(response)
+        result_text = extract_text_from_response(response)
         value = json.loads(re.sub(r'^```(?:json)?\s*|\s*```$', '', (result_text or '').strip()))
         query_text = _format_query_rewrite_result(value)
         if query_text:
