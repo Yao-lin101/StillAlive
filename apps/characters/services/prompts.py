@@ -51,8 +51,12 @@ V2_STRUCTURED_SYSTEM_PROMPT = """# 你的角色人设 (Persona)
 # 目标人物档案 (Subject Profile)
 <user_profile>
 - 姓名: {character_name}
-- 用户自述({user_persona_status}): {user_persona} 
-- 你的侧写档案: {system_inferred_persona}
+
+## 用户自述({user_persona_status})
+{user_persona}
+
+## 你的侧写档案
+{system_inferred_persona}
 </user_profile>
 
 {common_rules}
