@@ -70,6 +70,9 @@ def _build_module_system_prompt(module_key, character_name, persona_info, data_s
 
 def _build_module_user_prompt(module_key, character_name, data_section, previous_module_data, other_modules_context, memory_context):
     """构建模块化分析的 User Prompt"""
+    # 统一内存上下文格式化
+    mem_section = f"\n# 长期记忆/历史背景\n{memory_context}" if memory_context else ""
+
     if module_key == 'schedule' or module_key == 'activity':
         prev_data = previous_module_data or {}
         locked_slots = [s.copy() for s in prev_data.get('slots', []) if s.get('locked')]
@@ -82,11 +85,16 @@ def _build_module_user_prompt(module_key, character_name, data_section, previous
         return prompt_tmpl.format(
             character_name=character_name,
             data_section=data_section,
-            existing_slots_section=existing_section
+            existing_slots_section=existing_section,
+            memory_section=mem_section
         )
     
     elif module_key == 'findings':
-        return pv2.FINDINGS_USER_PROMPT.format(character_name=character_name, data_section=data_section)
+        return pv2.FINDINGS_USER_PROMPT.format(
+            character_name=character_name, 
+            data_section=data_section,
+            memory_section=mem_section
+        )
     
     elif module_key == 'chat':
         prev_data = previous_module_data or {}
@@ -97,15 +105,15 @@ def _build_module_user_prompt(module_key, character_name, data_section, previous
         return pv2.CHAT_USER_PROMPT.format(
             character_name=character_name,
             chat_section=data_section, 
-            existing_items_section=existing_section
+            existing_items_section=existing_section,
+            memory_section=mem_section
         )
     
     else: # title_summary
         return pv2.TITLE_SUMMARY_USER_PROMPT.format(
             character_name=character_name,
             data_section=data_section,
-            other_modules_section=f"\n# 各模块分析结论汇聚\n{other_modules_context}" if other_modules_context else "",
-            memory_section=f"\n# 长期记忆/历史背景\n{memory_context}" if memory_context else ""
+            other_modules_section=f"\n# 各模块分析结论汇聚\n{other_modules_context}" if other_modules_context else ""
         )
 
 def analyze_module_structured(

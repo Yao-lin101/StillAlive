@@ -98,8 +98,6 @@ TITLE_SUMMARY_USER_PROMPT = """请根据以下数据快照及已有的模块结�
 </daily_snapshot_summary>
 
 {other_modules_section}
-
-{memory_section}
 """
 
 # ══════════════════════════════════════════════════════════════════
@@ -141,6 +139,8 @@ SCHEDULE_USER_PROMPT = """请根据以下今日活跃时段数据，为用户 {c
 </daily_snapshot>
 
 {existing_slots_section}
+
+{memory_section}
 """
 
 SCHEDULE_EXISTING_SLOTS_TEMPLATE = """
@@ -190,6 +190,8 @@ ACTIVITY_USER_PROMPT = """请根据以下今日 App 使用数据，为用户 {ch
 </daily_snapshot>
 
 {existing_slots_section}
+
+{memory_section}
 """
 
 # ══════════════════════════════════════════════════════════════════
@@ -242,6 +244,8 @@ FINDINGS_USER_PROMPT = """请根据以下今日全量数据快照，为用户 {c
 <daily_snapshot>
 {data_section}
 </daily_snapshot>
+
+{memory_section}
 """
 
 
@@ -281,6 +285,8 @@ CHAT_USER_PROMPT = """请根据以下今日聊天记录，为用户 {character_n
 </chat_data>
 
 {existing_items_section}
+
+{memory_section}
 """
 
 CHAT_EXISTING_ITEMS_TEMPLATE = """
