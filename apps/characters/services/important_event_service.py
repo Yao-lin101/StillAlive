@@ -197,7 +197,7 @@ def _get_anthropic_client():
     base_url = getattr(settings, 'ANTHROPIC_BASE_URL', None)
     if base_url:
         client_kwargs['base_url'] = base_url
-    return anthropic.Anthropic(**client_kwargs)
+    return anthropic.Anthropic(**client_kwargs, timeout=180.0)
 
 
 def _build_event_extraction_system_prompt(report):
@@ -302,7 +302,7 @@ def extract_important_events_for_report(report, force=False):
         model=model,
         system=_build_event_extraction_system_prompt(report),
         temperature=0.2,
-        max_tokens=4096,
+        max_tokens=8192,
         messages=[{'role': 'user', 'content': prompt}],
     )
     result_text = extract_text_from_response(response)
@@ -689,7 +689,12 @@ def _rewrite_retrieval_query_with_llm(character, aggregated_data):
             messages=[{'role': 'user', 'content': prompt}],
         )
         result_text = extract_text_from_response(response)
-        value = json.loads(re.sub(r'^```(?:json)?\s*|\s*```$', '', (result_text or '').strip()))
+        # 使用更鲁棒的解析
+        from .llm_utils import safe_json_loads
+        value = safe_json_loads(result_text)
+        if not value:
+            raise ValueError("Failed to parse retrieval query JSON")
+        
         query_text = _format_query_rewrite_result(value)
         if query_text:
             logger.info("Important event retrieval query rewritten by LLM for character %s", character.uid)

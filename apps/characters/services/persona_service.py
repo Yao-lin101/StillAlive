@@ -147,7 +147,7 @@ def update_system_persona(config, yesterday_report_text=None, trigger_type='sche
         
         response = client.messages.create(
             model=model,
-            max_tokens=2000,
+            max_tokens=8192,
             temperature=0.4,
             system=system_prompt,
             messages=[{"role": "user", "content": user_prompt}]

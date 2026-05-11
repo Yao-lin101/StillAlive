@@ -173,7 +173,7 @@ def analyze_module_structured(
     try:
         import anthropic
         base_url = getattr(settings, 'ANTHROPIC_BASE_URL', None)
-        client = anthropic.Anthropic(api_key=api_key, base_url=base_url) if base_url else anthropic.Anthropic(api_key=api_key)
+        client = anthropic.Anthropic(api_key=api_key, base_url=base_url, timeout=180.0) if base_url else anthropic.Anthropic(api_key=api_key, timeout=180.0)
         
         response = client.messages.create(
             model=getattr(settings, 'ANTHROPIC_MODEL', 'claude-3-5-sonnet-20241022'),
@@ -210,7 +210,7 @@ def _extract_meta_instructions(client, model, private_blocks, data_keys=[]):
         print("\n" + "="*30 + " [AUDIT STAGE 1: INTENT] " + "="*30)
         prompt_step1 = pv2.META_INSTRUCTION_CHECK_PROMPT.format(private_chat_content=chat_content)
         response_step1 = client.messages.create(
-            model=model, max_tokens=1000, temperature=0,
+            model=model, max_tokens=8192, temperature=0,
             messages=[{"role": "user", "content": prompt_step1}]
         )
         raw_res1 = utils.extract_text_from_response(response_step1)
@@ -231,7 +231,7 @@ def _extract_meta_instructions(client, model, private_blocks, data_keys=[]):
             )
             print("\n" + "="*30 + " [AUDIT STAGE 2: REDACTION] " + "="*30)
             response_step2 = client.messages.create(
-                model=model, max_tokens=2000, temperature=0,
+                model=model, max_tokens=8192, temperature=0,
                 messages=[{"role": "user", "content": prompt_step2}]
             )
             raw_res2 = utils.extract_text_from_response(response_step2)
@@ -252,7 +252,7 @@ def _perform_audit_stage(data_summary):
     base_url = getattr(settings, 'ANTHROPIC_BASE_URL', None)
     
     import anthropic
-    client = anthropic.Anthropic(api_key=api_key, base_url=base_url) if base_url else anthropic.Anthropic(api_key=api_key)
+    client = anthropic.Anthropic(api_key=api_key, base_url=base_url, timeout=180.0) if base_url else anthropic.Anthropic(api_key=api_key, timeout=180.0)
 
     private_blocks = []
     for msg_record in data_summary.get('qq_messages', []):
