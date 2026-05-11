@@ -4,6 +4,9 @@ import re
 from django.utils import timezone
 from .data_service import ACTIVE_INTERVAL_MAX_GAP
 
+import time
+from django.conf import settings
+
 logger = logging.getLogger(__name__)
 
 # ── 基础工具函数 (Basic Utilities) ──────────────────────────────────
@@ -49,6 +52,58 @@ def extract_text_from_response(response):
         result_text = re.sub(r'<think>.*?</think>', '', result_text, flags=re.DOTALL).strip()
         
     return result_text
+
+
+def call_anthropic_api(system_prompt, user_prompt, max_tokens=8192, temperature=0.7, max_retries=3):
+    """
+    统一的 Anthropic API 调用入口，包含重试和超时逻辑。
+    """
+    api_key = getattr(settings, 'ANTHROPIC_API_KEY', None)
+    if not api_key:
+        return {"error": "API Key not configured"}
+
+    import anthropic
+    base_url = getattr(settings, 'ANTHROPIC_BASE_URL', None)
+    model = getattr(settings, 'ANTHROPIC_MODEL', 'claude-3-5-sonnet-20241022')
+    
+    # 建立客户端，显式设置超时
+    client = anthropic.Anthropic(
+        api_key=api_key, 
+        base_url=base_url,
+        timeout=180.0 # 统一 180s 超时
+    ) if base_url else anthropic.Anthropic(api_key=api_key, timeout=180.0)
+
+    retry_count = 0
+    backoff_delay = 2 # 初始退避 2 秒
+
+    while retry_count <= max_retries:
+        try:
+            response = client.messages.create(
+                model=model,
+                system=system_prompt,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                messages=[{"role": "user", "content": user_prompt}]
+            )
+            return response
+        except Exception as e:
+            retry_count += 1
+            if retry_count > max_retries:
+                logger.error(f"LLM API call failed after {max_retries} retries: {str(e)}")
+                raise e
+            
+            # 只有特定的错误才重试（超时、500、频率限制等）
+            error_str = str(e).lower()
+            is_retryable = any(kw in error_str for kw in ['timeout', '500', '502', '503', '504', 'overloaded', 'rate_limit'])
+            
+            if is_retryable:
+                logger.warning(f"LLM API call error: {str(e)}. Retrying in {backoff_delay}s... (Attempt {retry_count}/{max_retries})")
+                time.sleep(backoff_delay)
+                backoff_delay *= 2 # 指数退避
+            else:
+                # 非可重试错误（如 400 格式错误）直接抛出
+                logger.error(f"LLM API non-retryable error: {str(e)}")
+                raise e
 
 
 def clean_markdown_wrapper(text):

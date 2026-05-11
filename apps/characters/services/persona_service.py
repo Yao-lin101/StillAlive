@@ -69,12 +69,6 @@ def update_system_persona(config, yesterday_report_text=None, trigger_type='sche
         return
         
     try:
-        import anthropic
-        client_kwargs = {'api_key': api_key}
-        if base_url:
-            client_kwargs['base_url'] = base_url
-        client = anthropic.Anthropic(**client_kwargs)
-        
         is_first_time = not config.system_inferred_persona
         
         recent_reports = DailyReport.objects.filter(
@@ -145,12 +139,11 @@ def update_system_persona(config, yesterday_report_text=None, trigger_type='sche
         print(f"\nUser Prompt:\n{user_prompt}")
         print("="*20 + " Persona Analysis Prompt End " + "="*20 + "\n")
         
-        response = client.messages.create(
-            model=model,
+        response = utils.call_anthropic_api(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
             max_tokens=8192,
-            temperature=0.4,
-            system=system_prompt,
-            messages=[{"role": "user", "content": user_prompt}]
+            temperature=0.4
         )
         
         new_persona = utils.extract_text_from_response(response)

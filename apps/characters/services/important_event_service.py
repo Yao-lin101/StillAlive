@@ -186,18 +186,6 @@ def _parse_json_array(text):
     return value
 
 
-def _get_anthropic_client():
-    api_key = getattr(settings, 'ANTHROPIC_API_KEY', None)
-    if not api_key:
-        return None
-
-    import anthropic
-
-    client_kwargs = {'api_key': api_key}
-    base_url = getattr(settings, 'ANTHROPIC_BASE_URL', None)
-    if base_url:
-        client_kwargs['base_url'] = base_url
-    return anthropic.Anthropic(**client_kwargs, timeout=180.0)
 
 
 def _build_event_extraction_system_prompt(report):
@@ -271,11 +259,6 @@ def extract_important_events_for_report(report, force=False):
             sync_event_to_milvus(event)
         return {'created': 0, 'updated': 0, 'skipped': True, 'reason': 'unchanged'}
 
-    client = _get_anthropic_client()
-    if client is None:
-        logger.warning("Anthropic API key not configured, skip important event extraction")
-        return {'created': 0, 'updated': 0, 'skipped': True, 'reason': 'anthropic_not_configured'}
-
     # 获取人设信息作为辅助上下文
     try:
         config = report.character.daily_report_config
@@ -287,23 +270,18 @@ def extract_important_events_for_report(report, force=False):
     
     persona_context = f"- 用户自述人设: {persona}\n- 系统侧写档案: {system_inferred_persona}"
 
-    model = getattr(settings, 'ANTHROPIC_MODEL', 'claude-3-5-sonnet-20241022')
-    markdown = ''
-    if report.analysis_result and isinstance(report.analysis_result, dict):
-        markdown = (report.analysis_result.get('markdown', '') or '')[:4000]
-
     prompt = EVENT_EXTRACTION_USER_PROMPT.format(
         date=report.date.isoformat(),
         raw_data=_json_dumps(report.raw_data),
         persona_context=persona_context,
     )
 
-    response = client.messages.create(
-        model=model,
-        system=_build_event_extraction_system_prompt(report),
-        temperature=0.2,
+    from .llm_utils import call_anthropic_api, extract_text_from_response
+    response = call_anthropic_api(
+        system_prompt=_build_event_extraction_system_prompt(report),
+        user_prompt=prompt,
         max_tokens=8192,
-        messages=[{'role': 'user', 'content': prompt}],
+        temperature=0.2
     )
     result_text = extract_text_from_response(response)
     raw_events = _parse_json_array(result_text)
@@ -655,13 +633,6 @@ def _rewrite_retrieval_query_with_llm(character, aggregated_data):
     if not getattr(settings, 'IMPORTANT_EVENT_QUERY_REWRITE_ENABLED', True):
         return ''
 
-    client = _get_anthropic_client()
-    if client is None:
-        return ''
-
-    model = getattr(settings, 'ANTHROPIC_MODEL', 'claude-3-5-sonnet-20241022')
-    max_tokens = int(getattr(settings, 'IMPORTANT_EVENT_QUERY_REWRITE_MAX_TOKENS', 512))
-
     # 获取人设信息作为辅助上下文
     try:
         config = character.daily_report_config
@@ -680,18 +651,19 @@ def _rewrite_retrieval_query_with_llm(character, aggregated_data):
         persona_context=persona_context,
     )
 
+    from . import llm_utils as utils
     try:
-        response = client.messages.create(
-            model=model,
-            system=_build_query_rewrite_system_prompt(character),
-            temperature=0.2,
-            max_tokens=max_tokens,
-            messages=[{'role': 'user', 'content': prompt}],
+        system_prompt = _build_query_rewrite_system_prompt(character)
+        user_prompt = prompt
+        response = utils.call_anthropic_api(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            max_tokens=8192,
+            temperature=0.4
         )
-        result_text = extract_text_from_response(response)
+        result_text = utils.extract_text_from_response(response)
         # 使用更鲁棒的解析
-        from .llm_utils import safe_json_loads
-        value = safe_json_loads(result_text)
+        value = utils.safe_json_loads(result_text)
         if not value:
             raise ValueError("Failed to parse retrieval query JSON")
         

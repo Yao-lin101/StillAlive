@@ -171,16 +171,11 @@ def analyze_module_structured(
 
     # 4. 调用 LLM
     try:
-        import anthropic
-        base_url = getattr(settings, 'ANTHROPIC_BASE_URL', None)
-        client = anthropic.Anthropic(api_key=api_key, base_url=base_url, timeout=180.0) if base_url else anthropic.Anthropic(api_key=api_key, timeout=180.0)
-        
-        response = client.messages.create(
-            model=getattr(settings, 'ANTHROPIC_MODEL', 'claude-3-5-sonnet-20241022'),
-            system=system_prompt,
-            temperature=0.7,
+        response = utils.call_anthropic_api(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
             max_tokens=8192,
-            messages=[{"role": "user", "content": user_prompt}]
+            temperature=0.7
         )
         
         result = utils.safe_json_loads(utils.clean_markdown_wrapper(utils.extract_text_from_response(response)))
@@ -192,7 +187,7 @@ def analyze_module_structured(
 
 # ── 流程编排内部辅助函数 (Workflow Helpers) ────────────────────
 
-def _extract_meta_instructions(client, model, private_blocks, data_keys=[]):
+def _extract_meta_instructions(private_blocks, data_keys=[]):
     """从私聊记录中提取元指令和脱敏需求 (采用两步审计法)"""
     if not private_blocks:
         return {"instructions": [], "redactions": [], "has_any": False}
@@ -207,11 +202,14 @@ def _extract_meta_instructions(client, model, private_blocks, data_keys=[]):
         chat_content += "---\n"
 
     try:
-        print("\n" + "="*30 + " [AUDIT STAGE 1: INTENT] " + "="*30)
-        prompt_step1 = pv2.META_INSTRUCTION_CHECK_PROMPT.format(private_chat_content=chat_content)
-        response_step1 = client.messages.create(
-            model=model, max_tokens=8192, temperature=0,
-            messages=[{"role": "user", "content": prompt_step1}]
+        system_prompt = pv2.META_INSTRUCTION_CHECK_SYSTEM
+        user_prompt = pv2.META_INSTRUCTION_CHECK_USER.format(private_chat_content=chat_content)
+        
+        response_step1 = utils.call_anthropic_api(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            max_tokens=8192,
+            temperature=0
         )
         raw_res1 = utils.extract_text_from_response(response_step1)
         print(f"STAGE 1 RAW RESPONSE:\n{raw_res1}")
@@ -226,13 +224,16 @@ def _extract_meta_instructions(client, model, private_blocks, data_keys=[]):
         if needs_redaction and data_keys:
             sorted_keys = sorted(data_keys)
             data_keys_str = "\n".join([f"- {k}" for k in sorted_keys])
-            prompt_step2 = pv2.META_REDACTION_MATCH_PROMPT.format(
+            system_prompt = pv2.META_REDACTION_MATCH_SYSTEM
+            user_prompt = pv2.META_REDACTION_MATCH_USER.format(
                 private_chat_content=chat_content, data_keys=data_keys_str
             )
             print("\n" + "="*30 + " [AUDIT STAGE 2: REDACTION] " + "="*30)
-            response_step2 = client.messages.create(
-                model=model, max_tokens=8192, temperature=0,
-                messages=[{"role": "user", "content": prompt_step2}]
+            response_step2 = utils.call_anthropic_api(
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                max_tokens=8192,
+                temperature=0
             )
             raw_res2 = utils.extract_text_from_response(response_step2)
             print(f"STAGE 2 RAW RESPONSE:\n{raw_res2}")
@@ -247,12 +248,6 @@ def _extract_meta_instructions(client, model, private_blocks, data_keys=[]):
 
 def _perform_audit_stage(data_summary):
     """第一阶段：审计与脱敏识别"""
-    api_key = getattr(settings, 'ANTHROPIC_API_KEY', None)
-    model = getattr(settings, 'ANTHROPIC_MODEL', 'claude-3-5-sonnet-20241022')
-    base_url = getattr(settings, 'ANTHROPIC_BASE_URL', None)
-    
-    import anthropic
-    client = anthropic.Anthropic(api_key=api_key, base_url=base_url, timeout=180.0) if base_url else anthropic.Anthropic(api_key=api_key, timeout=180.0)
 
     private_blocks = []
     for msg_record in data_summary.get('qq_messages', []):
@@ -260,7 +255,7 @@ def _perform_audit_stage(data_summary):
             private_blocks.extend(msg_record.get('message_data', []))
     
     data_keys = utils.get_redaction_keys(data_summary)
-    audit_result = _extract_meta_instructions(client, model, private_blocks, data_keys)
+    audit_result = _extract_meta_instructions(private_blocks, data_keys)
     
     return {
         "meta_instructions": "\n".join(audit_result.get('instructions', [])),
