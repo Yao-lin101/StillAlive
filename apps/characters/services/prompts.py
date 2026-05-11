@@ -272,7 +272,7 @@ CHAT_FORMAT_INSTRUCTIONS = """
   "overall": "对今日聊天互动的整体评语",
   "new_items": [
     {{
-      "ref": "群名称 或 私聊",
+      "ref": "如果是私聊，固定填写 '私聊'；如果是群聊，填写具体的 '群名称'",
       "topic": "话题标题或摘要",
       "comment": "对该话题的评语",
       "analyzed_at": "HH:MM"
