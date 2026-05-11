@@ -64,14 +64,14 @@ def _build_module_system_prompt(module_key, character_name, persona_info, data_s
         report_mode="模块化增量更新",
         mode_hint="请按照指定的 JSON 格式输出，保持角色沉浸。",
         cutoff_time=data_summary.get('data_cutoff_time', '未知'),
-        meta_instructions_section=f"\n# 特殊约束\n{meta_constraints}" if meta_constraints else "",
-        format_instructions=format_instr_map.get(module_key, "")
+        meta_instructions_section=f"# 特殊约束\n{meta_constraints.strip()}" if meta_constraints and meta_constraints.strip() else "",
+        format_instructions=format_instr_map.get(module_key, "").strip()
     )
 
 def _build_module_user_prompt(module_key, character_name, data_section, previous_module_data, other_modules_context, memory_context):
     """构建模块化分析的 User Prompt"""
-    # 统一内存上下文格式化
-    mem_section = f"\n# 长期记忆/历史背景\n{memory_context}" if memory_context else ""
+    # 统一内存上下文格式化 (不再主动加换行)
+    mem_section = f"# 长期记忆/历史背景\n{memory_context.strip()}" if memory_context and memory_context.strip() else ""
 
     if module_key == 'schedule' or module_key == 'activity':
         prev_data = previous_module_data or {}
@@ -80,11 +80,12 @@ def _build_module_user_prompt(module_key, character_name, data_section, previous
         
         existing_section = pv2.SCHEDULE_EXISTING_SLOTS_TEMPLATE.format(
             locked_slots_json=json.dumps(locked_slots, ensure_ascii=False, indent=2)
-        )
+        ).strip()
+        
         prompt_tmpl = pv2.SCHEDULE_USER_PROMPT if module_key == 'schedule' else pv2.ACTIVITY_USER_PROMPT
         return prompt_tmpl.format(
             character_name=character_name,
-            data_section=data_section,
+            data_section=data_section.strip(),
             existing_slots_section=existing_section,
             memory_section=mem_section
         )
@@ -92,7 +93,7 @@ def _build_module_user_prompt(module_key, character_name, data_section, previous
     elif module_key == 'findings':
         return pv2.FINDINGS_USER_PROMPT.format(
             character_name=character_name, 
-            data_section=data_section,
+            data_section=data_section.strip(),
             memory_section=mem_section
         )
     
@@ -101,10 +102,11 @@ def _build_module_user_prompt(module_key, character_name, data_section, previous
         locked_items = prev_data.get('items', [])
         existing_section = pv2.CHAT_EXISTING_ITEMS_TEMPLATE.format(
             locked_items_json=json.dumps(locked_items, ensure_ascii=False, indent=2)
-        )
+        ).strip()
+        
         return pv2.CHAT_USER_PROMPT.format(
             character_name=character_name,
-            chat_section=data_section, 
+            chat_section=data_section.strip(), 
             existing_items_section=existing_section,
             memory_section=mem_section
         )
@@ -112,8 +114,8 @@ def _build_module_user_prompt(module_key, character_name, data_section, previous
     else: # title_summary
         return pv2.TITLE_SUMMARY_USER_PROMPT.format(
             character_name=character_name,
-            data_section=data_section,
-            other_modules_section=f"\n# 各模块分析结论汇聚\n{other_modules_context}" if other_modules_context else ""
+            data_section=data_section.strip(),
+            other_modules_section=(f"# 各模块分析结论汇聚\n{other_modules_context.strip()}" if other_modules_context and other_modules_context.strip() else "")
         )
 
 def analyze_module_structured(
@@ -156,7 +158,7 @@ def analyze_module_structured(
     # 2. 脱敏与强化提示
     user_prompt = utils.apply_redactions(user_prompt, redaction_items)
     if meta_constraints and meta_constraints.strip():
-        user_prompt += f"\n\n**再次提醒**：请务必检查并严格遵守以下【特殊约束】，确保输出内容符合用户的最新指示：\n{meta_constraints}"
+        user_prompt += f"**再次提醒**：请务必检查并严格遵守以下【特殊约束】，确保输出内容符合用户的最新指示：\n{meta_constraints}"
 
     # 3. 打印调试信息 (恢复被误删的部分)
     print(f"\n{'='*60}")
