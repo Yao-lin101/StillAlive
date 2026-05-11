@@ -240,11 +240,12 @@ def format_chat_logs(data_summary):
 def build_data_section(data_summary, target_date_str, cutoff_time_str, **options):
     """
     模块化构建数据快照文本
-    options: exclude_apps, exclude_steps_and_ranges, compact_mode
+    options: exclude_apps, exclude_steps, exclude_active_ranges, compact_mode
     """
     compact = options.get('compact_mode', False)
     exclude_apps = options.get('exclude_apps', False)
-    exclude_stats = options.get('exclude_steps_and_ranges', False)
+    exclude_steps = options.get('exclude_steps', False)
+    exclude_active_ranges = options.get('exclude_active_ranges', False)
     
     sections = []
     
@@ -252,7 +253,7 @@ def build_data_section(data_summary, target_date_str, cutoff_time_str, **options
     sections.append(format_usage_overview(data_summary, target_date_str, cutoff_time_str))
     
     # 2. 活跃周期
-    if not exclude_stats and not compact:
+    if not exclude_active_ranges and not compact:
         sections.append(format_active_ranges(data_summary))
         
     # 3. 应用使用
@@ -267,7 +268,7 @@ def build_data_section(data_summary, target_date_str, cutoff_time_str, **options
         sections.append(format_app_usage(temp_summary, 'computer'))
         
     # 4. 步数
-    if not exclude_stats:
+    if not exclude_steps:
         sections.append(format_steps_info(data_summary))
         
     # 5. 聊天记录

@@ -147,7 +147,8 @@ def analyze_module_structured(
             data_summary, data_summary.get('date'), data_summary.get('data_cutoff_time'), 
             is_day_ended=is_day_ended,
             exclude_apps=(module_key == 'schedule'),
-            exclude_steps_and_ranges=(module_key == 'activity'),
+            exclude_steps=False,  # 所有模块默认开启步数，除非有特殊需求
+            exclude_active_ranges=(module_key == 'activity'), # 活动画像模块隐藏冗长的活跃周期，专注于步数和App
             compact_mode=compact_mode
         )
     
