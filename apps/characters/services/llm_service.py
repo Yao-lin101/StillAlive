@@ -267,9 +267,9 @@ def _perform_audit_stage(data_summary):
         "redaction_items": audit_result.get('redactions', [])
     }
 
-def _merge_module_result(module_key, result, prev_sections, is_day_ended, extra_meta):
+def _merge_module_result(module_key, result, prev_mod_data, is_day_ended, extra_meta):
     """将 LLM 返回的结果与现有数据进行合并与锁定逻辑处理"""
-    prev_mod_data = prev_sections.get(module_key) or {}
+    prev_mod_data = prev_mod_data or {}
     
     if module_key in ['schedule', 'activity', 'findings']:
         final_slots = [s for s in prev_mod_data.get('slots', []) if s.get('locked')]
@@ -338,9 +338,13 @@ def analyze_all_modules_sequential(
     
     for mod in modules:
         # 模块过滤逻辑
-        if target_modules:
-            if isinstance(target_modules, str) and target_modules != mod: continue
-            if isinstance(target_modules, (list, tuple)) and mod not in target_modules: continue
+        is_target = target_modules is None or (
+            (isinstance(target_modules, str) and target_modules == mod) or
+            (isinstance(target_modules, (list, tuple)) and mod in target_modules)
+        )
+        
+        if not is_target:
+            continue
 
         logger.info(f"Analyzing module: {mod}")
         
@@ -353,10 +357,14 @@ def analyze_all_modules_sequential(
                 continue
             current_msg_count = sum(len(b.get('message_data', [])) for b in messages)
             prev_chat = prev_sections.get('chat', {})
-            if prev_chat.get('status') == 'done' and prev_chat.get('_msg_count') == current_msg_count:
+            # 只有在非目标模块且消息数量未变化时才跳过
+            # 注意：此处 is_target 已定义。由于上面已经 continue 掉了非 target 模块，
+            # 这里的 is_target 其实始终为 True，但逻辑上保留这种判断更健壮。
+            # 如果我们希望在“全量重跑模式”下不跳过，可以使用 incremental 标志。
+            if incremental and prev_chat.get('status') == 'done' and prev_chat.get('_msg_count') == current_msg_count:
                 continue
             extra_meta = {'_msg_count': current_msg_count}
-
+        
         # 构建模块间上下文
         other_context = ""
         if mod == 'title_summary':
@@ -364,14 +372,6 @@ def analyze_all_modules_sequential(
                 if m in new_sections and new_sections[m].get('status') == 'done':
                     summary = new_sections[m].get('overall') or new_sections[m].get('summary') or new_sections[m].get('content')
                     if summary: other_context += f"【{m} 模块结论】：{summary}\n"
-
-        # 执行单模块分析
-        is_target = target_modules and (
-            (isinstance(target_modules, str) and target_modules == mod) or
-            (isinstance(target_modules, (list, tuple)) and mod in target_modules)
-        )
-        
-        # 确定是否使用旧数据作为上下文
         if incremental:
             # 增量模式：始终尝试获取旧数据
             mod_prev = prev_sections.get(mod)
@@ -392,7 +392,7 @@ def analyze_all_modules_sequential(
         
         # 合并结果
         if "error" not in result:
-            new_sections[mod] = _merge_module_result(mod, result, prev_sections, is_day_ended, extra_meta)
+            new_sections[mod] = _merge_module_result(mod, result, mod_prev, is_day_ended, extra_meta)
         else:
             # --- 核心修复：更严格的旧数据保护逻辑 ---
             # 只要 prev_sections 里有数据（无论 status 是什么），都应该保留
