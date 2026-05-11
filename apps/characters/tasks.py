@@ -233,7 +233,7 @@ def generate_daily_reports(self):
                     date=target_date
                 ).first()
                 
-                is_final_summary = (target_date == yesterday and local_now.hour == 0)
+                is_final_summary = (target_date < today)
                 
                 if existing_report:
                     existing_last_record_time = existing_report.last_record_time
@@ -286,6 +286,7 @@ def generate_daily_reports(self):
                         previous_analysis_result=existing_report.analysis_result,
                         long_term_memory_context=memory_context,
                         on_module_complete=on_module_complete_callback,
+                        is_day_ended=is_final_summary,
                         incremental=True
                     )
                     
@@ -348,6 +349,7 @@ def generate_daily_reports(self):
                         previous_analysis_result=None,
                         long_term_memory_context=memory_context,
                         on_module_complete=on_module_complete_callback,
+                        is_day_ended=is_final_summary,
                         incremental=True
                     )
                     
