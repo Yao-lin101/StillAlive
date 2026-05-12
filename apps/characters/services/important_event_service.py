@@ -347,28 +347,39 @@ def extract_important_events_for_report(report, force=False):
     for event_id in stale_ids:
         delete_event_from_milvus(event_id)
 
-    for event in ImportantEvent.objects.filter(id__in=active_event_ids):
-        sync_event_to_milvus(event)
+    # 批量同步到 Milvus
+    sync_events_to_milvus(list(ImportantEvent.objects.filter(id__in=active_event_ids)))
 
     return {'created': created, 'updated': updated, 'skipped': False}
 
 
 def _truncate_embedding_input(text):
+    if isinstance(text, list):
+        return [_truncate_embedding_input(t) for t in text]
+    
     text = str(text or '').strip()
     max_chars = int(getattr(settings, 'OLLAMA_EMBED_MAX_CHARS', 900))
     if max_chars <= 0 or len(text) <= max_chars:
         return text
 
     truncated = text[:max_chars]
-    logger.info("Ollama embedding input truncated from %s to %s chars", len(text), len(truncated))
     return truncated
 
 
 def _ollama_embed(text):
+    """
+    调用 Ollama 生成向量。支持单个字符串或字符串列表（批量）。
+    """
+    if not text:
+        return None
+        
     base_url = getattr(settings, 'OLLAMA_BASE_URL', 'http://127.0.0.1:11434').rstrip('/')
     model = getattr(settings, 'OLLAMA_EMBED_MODEL', 'mxbai-embed-large')
-    text = _truncate_embedding_input(text)
-    payload = json.dumps({'model': model, 'input': text}, ensure_ascii=False).encode('utf-8')
+    
+    # 自动截断超长文本
+    processed_input = _truncate_embedding_input(text)
+    
+    payload = json.dumps({'model': model, 'input': processed_input}, ensure_ascii=False).encode('utf-8')
     request = urllib.request.Request(
         f'{base_url}/api/embed',
         data=payload,
@@ -377,28 +388,22 @@ def _ollama_embed(text):
     )
 
     try:
-        with urllib.request.urlopen(request, timeout=20) as response:
+        # 增加超时到 60s 以支持大批量计算
+        with urllib.request.urlopen(request, timeout=60) as response:
             data = json.loads(response.read().decode('utf-8'))
-    except urllib.error.HTTPError as exc:
-        try:
-            error_body = exc.read().decode('utf-8')
-        except Exception:
-            error_body = ''
-        logger.warning("Ollama embedding request failed: HTTP %s %s", exc.code, error_body[:500])
-        return None
-    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
+    except Exception as exc:
         logger.warning("Ollama embedding request failed: %s", exc)
         return None
 
     embeddings = data.get('embeddings')
     if embeddings and isinstance(embeddings, list):
-        embedding = embeddings[0]
-    else:
-        embedding = data.get('embedding')
-
-    if not isinstance(embedding, list):
-        return None
-    return [float(x) for x in embedding]
+        return [[float(x) for x in emb] for emb in embeddings]
+    
+    embedding = data.get('embedding')
+    if isinstance(embedding, list):
+        return [float(x) for x in embedding]
+        
+    return None
 
 
 def _get_milvus_collection():
@@ -458,36 +463,79 @@ def _get_milvus_collection():
         return None
 
 
-def sync_event_to_milvus(event):
-    if not getattr(settings, 'IMPORTANT_EVENT_VECTOR_ENABLED', True):
-        return False
-
-    embedding = _ollama_embed(event.embedding_text or _build_embedding_text(event))
-    if not embedding:
-        return False
+def sync_events_to_milvus(events):
+    """
+    批量同步多个事件到 Milvus。
+    """
+    if not events or not getattr(settings, 'IMPORTANT_EVENT_VECTOR_ENABLED', True):
+        return 0
 
     collection = _get_milvus_collection()
     if collection is None:
-        return False
+        return 0
+
+    # 1. 准备待向量化的文本列表
+    texts = []
+    valid_events = []
+    for event in events:
+        txt = event.embedding_text or _build_embedding_text(event)
+        if txt:
+            texts.append(txt)
+            valid_events.append(event)
+    
+    if not texts:
+        return 0
+
+    # 2. 调用批量 Embedding
+    logger.info(f"Batch embedding {len(texts)} events via Ollama...")
+    all_embeddings = _ollama_embed(texts)
+    if not all_embeddings or len(all_embeddings) != len(texts):
+        logger.error("Batch embedding failed or returned mismatched results")
+        return 0
+
+    # 3. 准备 Milvus 写入数据
+    ids = []
+    char_ids = []
+    dates = []
+    scores = []
+    embs = []
+    
+    for event, embedding in zip(valid_events, all_embeddings):
+        ids.append(str(event.id))
+        char_ids.append(str(event.character_id))
+        dates.append(event.date.isoformat())
+        scores.append(int(event.importance_score))
+        embs.append(embedding)
 
     try:
-        expr = f'event_id == "{event.id}"'
-        collection.delete(expr)
-        collection.insert([
-            [str(event.id)],
-            [str(event.character_id)],
-            [event.date.isoformat()],
-            [int(event.importance_score)],
-            [embedding],
-        ])
+        # 先删除旧的（防止重复）
+        id_str = ", ".join([f'"{i}"' for i in ids])
+        collection.delete(f'event_id in [{id_str}]')
+        
+        # 批量插入
+        collection.insert([ids, char_ids, dates, scores, embs])
         collection.flush()
-        event.milvus_synced = True
-        event.milvus_synced_at = timezone.now()
-        event.save(update_fields=['milvus_synced', 'milvus_synced_at'])
-        return True
+        
+        # 更新数据库状态
+        with transaction.atomic():
+            now = timezone.now()
+            for event in valid_events:
+                event.milvus_synced = True
+                event.milvus_synced_at = now
+                event.save(update_fields=['milvus_synced', 'milvus_synced_at'])
+        
+        logger.info(f"Successfully synced {len(valid_events)} events to Milvus")
+        return len(valid_events)
     except Exception as exc:
-        logger.warning("Failed to sync important event %s to Milvus: %s", event.id, exc)
-        return False
+        logger.warning("Batch sync to Milvus failed: %s", exc)
+        return 0
+
+
+def sync_event_to_milvus(event):
+    """
+    兼容旧代码：同步单个事件。
+    """
+    return bool(sync_events_to_milvus([event]))
 
 
 def delete_event_from_milvus(event_id):
