@@ -25,11 +25,15 @@ app.conf.beat_schedule = {
     },
     'generate-daily-reports': {
         'task': 'apps.characters.tasks.generate_daily_reports',
-        'schedule': crontab(minute=5),  # 每小时第 5 分钟执行（给状态同步留时间）
+        'schedule': crontab(minute=5),  # 每小时第 5 分钟执行（总结昨日或更新今日）
+    },
+    'update-personas': {
+        'task': 'apps.characters.tasks.update_personas',
+        'schedule': crontab(hour=0, minute=20),  # 每天 00:20 独立执行侧写更新
     },
     'generate-important-event-memories': {
         'task': 'apps.characters.tasks.generate_important_event_memories',
-        'schedule': crontab(hour=0, minute=30),  # 每天 00:30 抽取昨天的重要事件长期记忆
+        'schedule': crontab(hour=0, minute=40),  # 每天 00:40 抽取昨天的重要事件（推后 10 分钟以避开高峰）
     },
 }
 

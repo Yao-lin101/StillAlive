@@ -147,6 +147,9 @@ def check_wills():
     default_retry_delay=600,
     autoretry_for=(Exception,),
     retry_backoff=True,
+    # 强制超时保护：防止任务死锁挂起
+    soft_time_limit=1500,  # 25分钟，抛出 SoftTimeLimitExceeded 异常
+    time_limit=1800,       # 30分钟，强制杀进程回收资源
 )
 def generate_daily_reports(self):
     """
@@ -303,8 +306,9 @@ def generate_daily_reports(self):
                     success_count += 1
                     logger.info(f"Successfully updated report for {character.name} on {target_date}")
                     
-                    if is_final_summary:
-                        update_system_persona(config, analysis_result.get('markdown', ''))
+                    # --- 重构：侧写更新已移至 0:20 独立执行 ---
+                    # if is_final_summary:
+                    #     update_system_persona(config, analysis_result.get('markdown', ''))
                 
                 else:
                     logger.info(f"No existing report for {character.name} on {target_date}, creating new report")
@@ -363,8 +367,9 @@ def generate_daily_reports(self):
                     success_count += 1
                     logger.info(f"Successfully created report for {character.name} on {target_date}")
                     
-                    if is_final_summary:
-                        update_system_persona(config, analysis_result.get('markdown', ''))
+                    # --- 重构：侧写更新已移至 0:20 独立执行 ---
+                    # if is_final_summary:
+                    #     update_system_persona(config, analysis_result.get('markdown', ''))
                 
             except Exception as e:
                 failed_count += 1
@@ -397,6 +402,9 @@ def generate_daily_reports(self):
     default_retry_delay=600,
     autoretry_for=(Exception,),
     retry_backoff=True,
+    # 强制超时保护
+    soft_time_limit=1200,  # 20分钟
+    time_limit=1500,       # 25分钟
 )
 def generate_important_event_memories(self):
     """
@@ -460,4 +468,48 @@ def generate_important_event_memories(self):
         'skipped_count': skipped_count,
         'failed_count': failed_count,
         'total_processed': active_configs.count(),
+    }
+
+
+@shared_task(
+    bind=True,
+    max_retries=2,
+    default_retry_delay=600,
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+    soft_time_limit=1200,
+    time_limit=1500,
+)
+def update_personas(self):
+    """
+    每天 00:20 执行，分析过去 7 天数据更新系统侧写 (System Persona)。
+    """
+    local_now = timezone.localtime(timezone.now())
+    today = local_now.date()
+    
+    active_configs = DailyReportConfig.objects.filter(
+        is_enabled=True
+    ).select_related('character')
+
+    success_count = 0
+    failed_count = 0
+
+    logger.info(f"Starting scheduled persona update at {local_now.isoformat()}")
+
+    for config in active_configs:
+        try:
+            logger.info(f"Updating persona for character: {config.character.name}")
+            update_system_persona(config, today=today)
+            success_count += 1
+        except Exception as e:
+            failed_count += 1
+            logger.error(f"Failed to update persona for {config.character.name}: {str(e)}")
+            continue
+
+    logger.info(f"Scheduled persona update completed. Success: {success_count}, Failed: {failed_count}")
+    return {
+        'date': today.isoformat(),
+        'success_count': success_count,
+        'failed_count': failed_count,
+        'total_processed': active_configs.count()
     }
