@@ -35,6 +35,10 @@ app.conf.beat_schedule = {
         'task': 'apps.characters.tasks.generate_important_event_memories',
         'schedule': crontab(hour=0, minute=40),  # 每天 00:40 抽取昨天的重要事件（推后 10 分钟以避开高峰）
     },
+    'periodic-sync-mop-up': {
+        'task': 'apps.characters.tasks.sync_unsynced_events_task',
+        'schedule': crontab(minute=15, hour='4,10,16,22'),  # 避开凌晨 0-2 点高峰，每 6 小时补漏一次
+    },
 }
 
 @app.task(bind=True)

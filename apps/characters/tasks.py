@@ -513,3 +513,29 @@ def update_personas(self):
         'failed_count': failed_count,
         'total_processed': active_configs.count()
     }
+
+
+@shared_task
+def sync_unsynced_events_task():
+    """
+    定期（如每 6 小时）补漏：同步所有未成功进入 Milvus 的重要事件。
+    """
+    from apps.characters.models import ImportantEvent
+    from apps.characters.services.important_event_service import sync_events_to_milvus
+    
+    unsynced_events = ImportantEvent.objects.filter(
+        milvus_synced=False, 
+        is_active=True
+    ).order_by('-date')[:100] # 每次最多处理 100 条，避免压力过大
+    
+    if not unsynced_events.exists():
+        return "No unsynced events found."
+        
+    count = unsynced_events.count()
+    logger.info(f"Periodic sync starting: found {count} unsynced events.")
+    
+    # 利用我们新写的批量同步逻辑
+    synced_count = sync_events_to_milvus(list(unsynced_events))
+    
+    logger.info(f"Periodic sync completed: {synced_count}/{count} events synced.")
+    return f"Synced {synced_count}/{count} events."
