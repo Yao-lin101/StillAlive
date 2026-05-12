@@ -267,6 +267,15 @@ class DailyReportDetailSerializer(serializers.ModelSerializer):
 
     def get_markdown(self, obj):
         if obj.analysis_result and isinstance(obj.analysis_result, dict):
+            # 如果是 V2 结构化数据，使用渲染服务
+            if obj.analysis_result.get('version', 1) >= 2:
+                try:
+                    from .services.report_render_service import render_v2_report_to_markdown
+                    return render_v2_report_to_markdown(obj.analysis_result)
+                except Exception as e:
+                    logger.error(f"Failed to render v2 markdown for report {obj.id}: {e}")
+                    # 出错时退而求其次返回原始 markdown 字段
+            
             return obj.analysis_result.get('markdown', '')
         return ''
 
