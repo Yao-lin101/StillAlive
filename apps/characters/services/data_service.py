@@ -13,10 +13,12 @@ def _extract_raw_usage(statuses, field_mappings):
     """提取手机应用、电脑应用和步数的原始流水，以及当天的活跃小时集合和活跃时间点"""
     phone_key = field_mappings.get('phone_app')
     computer_key = field_mappings.get('computer_app')
+    computer_key_2 = field_mappings.get('computer_app_2')
     steps_key = field_mappings.get('steps')
     
     phone_app_usage = []
     computer_app_usage = []
+    computer_app_2_usage = []
     steps_data = []
     active_hours = set()
     active_timestamps = []
@@ -48,6 +50,16 @@ def _extract_raw_usage(statuses, field_mappings):
                     'timestamp': local_timestamp
                 })
                 has_relevant_data = True
+
+        if computer_key_2 and computer_key_2 in data:
+            value = data[computer_key_2]
+            if value:
+                computer_app_2_usage.append({
+                    'hour': hour,
+                    'app': str(value),
+                    'timestamp': local_timestamp
+                })
+                has_relevant_data = True
         
         if steps_key and steps_key in data:
             try:
@@ -64,7 +76,7 @@ def _extract_raw_usage(statuses, field_mappings):
             active_hours.add(hour)
             active_timestamps.append(local_timestamp)
                 
-    return phone_app_usage, computer_app_usage, steps_data, sorted(list(active_hours)), sorted(active_timestamps)
+    return phone_app_usage, computer_app_usage, computer_app_2_usage, steps_data, sorted(list(active_hours)), sorted(active_timestamps)
 
 
 def _compute_app_summary(app_usage):
@@ -257,6 +269,7 @@ def _get_historical_active_hours(character, start_time, end_time, field_mappings
     """查询指定时间段内的活跃小时集合和活跃时间点"""
     phone_key = field_mappings.get('phone_app')
     computer_key = field_mappings.get('computer_app')
+    computer_key_2 = field_mappings.get('computer_app_2')
     steps_key = field_mappings.get('steps')
     
     statuses = CharacterStatus.objects.filter(
@@ -277,6 +290,8 @@ def _get_historical_active_hours(character, start_time, end_time, field_mappings
         if phone_key and phone_key in data and data[phone_key]:
             has_relevant_data = True
         if computer_key and computer_key in data and data[computer_key]:
+            has_relevant_data = True
+        if computer_key_2 and computer_key_2 in data and data[computer_key_2]:
             has_relevant_data = True
         if steps_key and steps_key in data:
             try:
@@ -427,15 +442,17 @@ def aggregate_status_data(character, field_mappings, target_date, end_datetime=N
         
     latest_status = statuses.last()
     
-    phone_app_usage, computer_app_usage, steps_data, active_hours, active_timestamps = _extract_raw_usage(statuses, field_mappings)
+    phone_app_usage, computer_app_usage, computer_app_2_usage, steps_data, active_hours, active_timestamps = _extract_raw_usage(statuses, field_mappings)
     
     phone_summary, phone_by_hour = _compute_app_summary(phone_app_usage)
     computer_summary, computer_by_hour = _compute_app_summary(computer_app_usage)
+    computer_2_summary, computer_2_by_hour = _compute_app_summary(computer_app_2_usage)
     steps_summary, steps_by_hour = _compute_steps_summary(steps_data)
     
     # 计算按时间范围聚合的应用数据
     phone_app_by_time_range = _compute_app_by_time_range(phone_app_usage, end_datetime, other_usage=computer_app_usage)
     computer_app_by_time_range = _compute_app_by_time_range(computer_app_usage, end_datetime, other_usage=phone_app_usage)
+    computer_app_2_by_time_range = _compute_app_by_time_range(computer_app_2_usage, end_datetime, other_usage=phone_app_usage)
     
     # 计算活跃时间区间
     last_record_time = timezone.localtime(latest_status.timestamp) if latest_status else None
@@ -465,6 +482,11 @@ def aggregate_status_data(character, field_mappings, target_date, end_datetime=N
         aggregated['computer_app_summary'] = computer_summary
         if computer_app_by_time_range:
             aggregated['computer_app_by_time_range'] = computer_app_by_time_range
+
+    if computer_2_summary:
+        aggregated['computer_app_2_summary'] = computer_2_summary
+        if computer_app_2_by_time_range:
+            aggregated['computer_app_2_by_time_range'] = computer_app_2_by_time_range
         
     if steps_summary:
         aggregated['steps_summary'] = steps_summary

@@ -642,6 +642,10 @@ def _build_retrieval_query(aggregated_data):
     if computer_apps:
         parts.append(f"电脑应用Top: {computer_apps}")
 
+    computer_apps_2 = _format_top_items(aggregated_data.get('computer_app_2_summary'), limit=10)
+    if computer_apps_2:
+        parts.append(f"电脑2应用Top: {computer_apps_2}")
+
     steps_summary = aggregated_data.get('steps_summary') or {}
     if steps_summary:
         parts.append(f"总步数: {steps_summary.get('total', 0)}")

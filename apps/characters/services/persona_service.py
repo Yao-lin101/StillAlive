@@ -37,6 +37,7 @@ def _get_raw_data_summary(report):
         'active_time_ranges': report.raw_data.get('active_time_ranges'),
         'phone_app_summary': report.raw_data.get('phone_app_summary'),
         'computer_app_summary': report.raw_data.get('computer_app_summary'),
+        'computer_app_2_summary': report.raw_data.get('computer_app_2_summary'),
         'steps_summary': report.raw_data.get('steps_summary')
     }, ensure_ascii=False)
 

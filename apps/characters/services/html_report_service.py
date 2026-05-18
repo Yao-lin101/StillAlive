@@ -123,6 +123,7 @@ def _build_activity_timeline(raw_data: dict) -> dict:
 
     process_time_range(raw_data.get("phone_app_by_time_range", {}))
     process_time_range(raw_data.get("computer_app_by_time_range", {}))
+    process_time_range(raw_data.get("computer_app_2_by_time_range", {}))
 
     # 构建24小时数据
     hours = []
@@ -163,6 +164,7 @@ def _build_app_usage_chart(raw_data: dict) -> dict:
     """
     phone_apps = raw_data.get("phone_app_summary", {}) or {}
     computer_apps = raw_data.get("computer_app_summary", {}) or {}
+    computer_2_apps = raw_data.get("computer_app_2_summary", {}) or {}
 
     # 构建分设备数据（取Top8）
     def top_apps(app_dict: dict, limit: int = 8) -> list:
@@ -179,6 +181,9 @@ def _build_app_usage_chart(raw_data: dict) -> dict:
     for k, v in computer_apps.items():
         clean_k = _clean_app_name(k)
         merged[clean_k] += v
+    for k, v in computer_2_apps.items():
+        clean_k = _clean_app_name(k)
+        merged[clean_k] += v
 
     # 同时也清洗分设备的数据
     def process_app_dict(app_dict: dict) -> dict:
@@ -190,24 +195,28 @@ def _build_app_usage_chart(raw_data: dict) -> dict:
 
     phone_cleaned = process_app_dict(phone_apps)
     computer_cleaned = process_app_dict(computer_apps)
+    computer_2_cleaned = process_app_dict(computer_2_apps)
 
     phone_top = top_apps(phone_cleaned)
     computer_top = top_apps(computer_cleaned)
+    computer_2_top = top_apps(computer_2_cleaned)
 
     all_top = sorted(merged.items(), key=lambda x: x[1], reverse=True)[:10]
     combined = [{"name": k, "count": v} for k, v in all_top]
 
     total_phone = sum(phone_apps.values()) if phone_apps else 0
     total_computer = sum(computer_apps.values()) if computer_apps else 0
+    total_computer_2 = sum(computer_2_apps.values()) if computer_2_apps else 0
 
     return {
         "phone": phone_top,
         "computer": computer_top,
+        "computer_2": computer_2_top,
         "combined": combined,
         "total_phone_records": total_phone,
-        "total_computer_records": total_computer,
+        "total_computer_records": total_computer + total_computer_2,
         "has_phone": bool(phone_top),
-        "has_computer": bool(computer_top),
+        "has_computer": bool(computer_top) or bool(computer_2_top),
     }
 
 
@@ -276,17 +285,9 @@ def _build_chat_summary(raw_data: dict) -> dict:
 # 主入口
 # ──────────────────────────────────────────────
 
-def build_report_data(raw_data: dict, analysis_result: dict) -> dict:
+def build_report_data(raw_data: dict, analysis_result: dict, field_mappings: dict = None) -> dict:
     """
-    将 DailyReport 的 raw_data 和 analysis_result 转换为
-    前端HTML模板所需的完整结构化数据。
-
-    Args:
-        raw_data: DailyReport.raw_data
-        analysis_result: DailyReport.analysis_result
-
-    Returns:
-        dict: 结构化的报告数据，前端直接消费
+    生成结构化HTML报告数据（图表数据 + LLM评论）
     """
     if not raw_data:
         return {}
@@ -302,6 +303,11 @@ def build_report_data(raw_data: dict, analysis_result: dict) -> dict:
 
         activity_timeline = _build_activity_timeline(raw_data)
         app_usage = _build_app_usage_chart(raw_data)
+        
+        # 注入用户配置的键名
+        if field_mappings:
+            app_usage["computer_key"] = field_mappings.get("computer_app")
+            app_usage["computer_key_2"] = field_mappings.get("computer_app_2")
         chat_data = _build_chat_summary(raw_data)
 
         # LLM 评论（如果 analysis_result 中有 sections，就用它；否则用 markdown）

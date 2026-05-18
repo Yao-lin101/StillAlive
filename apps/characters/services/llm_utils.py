@@ -198,9 +198,18 @@ def format_active_ranges(data_summary):
 
 def format_app_usage(data_summary, platform='phone'):
     """应用使用摘要"""
-    key = f'{platform}_app_summary'
-    by_time_key = f'{platform}_app_by_time_range'
-    title = "手机应用" if platform == 'phone' else "电脑应用"
+    if platform == 'computer_2':
+        key = 'computer_app_2_summary'
+        by_time_key = 'computer_app_2_by_time_range'
+        title = "电脑（设备二）应用"
+    elif platform == 'computer':
+        key = 'computer_app_summary'
+        by_time_key = 'computer_app_by_time_range'
+        title = "电脑（设备一）应用"
+    else:
+        key = f'{platform}_app_summary'
+        by_time_key = f'{platform}_app_by_time_range'
+        title = "手机应用" if platform == 'phone' else "电脑应用"
     
     content = ""
     summary = data_summary.get(key)
@@ -318,9 +327,12 @@ def build_data_section(data_summary, target_date_str, cutoff_time_str, **options
         if compact:
             temp_summary.pop('phone_app_by_time_range', None)
             temp_summary.pop('computer_app_by_time_range', None)
+            temp_summary.pop('computer_app_2_by_time_range', None)
             
         sections.append(format_app_usage(temp_summary, 'phone'))
         sections.append(format_app_usage(temp_summary, 'computer'))
+        if 'computer_app_2_summary' in temp_summary or 'computer_app_2_by_time_range' in temp_summary:
+            sections.append(format_app_usage(temp_summary, 'computer_2'))
         
     # 4. 步数
     if not exclude_steps:
@@ -339,11 +351,16 @@ def get_redaction_keys(data_summary):
     keys = set()
     
     # 提取应用名
-    for p in ['phone', 'computer']:
-        summary = data_summary.get(f'{p}_app_summary', {})
+    platforms = [
+        ('phone', 'phone_app_summary', 'phone_app_by_time_range'),
+        ('computer', 'computer_app_summary', 'computer_app_by_time_range'),
+        ('computer_2', 'computer_app_2_summary', 'computer_app_2_by_time_range')
+    ]
+    for p, sum_key, detail_key in platforms:
+        summary = data_summary.get(sum_key, {})
         if isinstance(summary, dict): keys.update(summary.keys())
         
-        detail = data_summary.get(f'{p}_app_by_time_range', {})
+        detail = data_summary.get(detail_key, {})
         if isinstance(detail, dict):
             for apps in detail.values():
                 if isinstance(apps, dict): keys.update(apps.keys())

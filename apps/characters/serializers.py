@@ -197,10 +197,10 @@ class DailyReportConfigSerializer(serializers.ModelSerializer):
         if not isinstance(value, dict):
             raise serializers.ValidationError("字段映射必须是一个对象")
         
-        allowed_keys = {'phone_app', 'computer_app', 'steps'}
+        allowed_keys = {'phone_app', 'computer_app', 'computer_app_2', 'steps'}
         for key in value.keys():
             if key not in allowed_keys:
-                raise serializers.ValidationError(f"不支持的字段类型: {key}，支持的类型: phone_app, computer_app, steps")
+                raise serializers.ValidationError(f"不支持的字段类型: {key}，支持的类型: phone_app, computer_app, computer_app_2, steps")
         
         return value
 
@@ -293,7 +293,10 @@ class DailyReportDetailSerializer(serializers.ModelSerializer):
         try:
             from .services.html_report_service import build_report_data
             raw_data = obj.raw_data or {}
-            return build_report_data(raw_data, analysis_result)
+            field_mappings = {}
+            if obj.character and hasattr(obj.character, 'daily_report_config'):
+                field_mappings = obj.character.daily_report_config.field_mappings or {}
+            return build_report_data(raw_data, analysis_result, field_mappings=field_mappings)
         except Exception as e:
             logger.error(f"Failed to build report_data for report {obj.id}: {e}")
             return {}
