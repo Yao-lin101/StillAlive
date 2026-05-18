@@ -217,6 +217,8 @@ def _build_app_usage_chart(raw_data: dict) -> dict:
         "total_computer_records": total_computer + total_computer_2,
         "has_phone": bool(phone_top),
         "has_computer": bool(computer_top) or bool(computer_2_top),
+        "computer_key": raw_data.get("computer_key"),
+        "computer_key_2": raw_data.get("computer_key_2"),
     }
 
 
@@ -304,10 +306,13 @@ def build_report_data(raw_data: dict, analysis_result: dict, field_mappings: dic
         activity_timeline = _build_activity_timeline(raw_data)
         app_usage = _build_app_usage_chart(raw_data)
         
-        # 注入用户配置的键名
+        # 注入用户配置的键名 (优先从字段映射中读取最新的，否则从持久化的 raw_data 中读取)
         if field_mappings:
             app_usage["computer_key"] = field_mappings.get("computer_app")
             app_usage["computer_key_2"] = field_mappings.get("computer_app_2")
+        elif raw_data:
+            app_usage["computer_key"] = raw_data.get("computer_key")
+            app_usage["computer_key_2"] = raw_data.get("computer_key_2")
         chat_data = _build_chat_summary(raw_data)
 
         # LLM 评论（如果 analysis_result 中有 sections，就用它；否则用 markdown）

@@ -478,6 +478,10 @@ def aggregate_status_data(character, field_mappings, target_date, end_datetime=N
         'active_time_ranges': formatted_active_ranges,
     }
     
+    if field_mappings:
+        aggregated['computer_key'] = field_mappings.get('computer_app')
+        aggregated['computer_key_2'] = field_mappings.get('computer_app_2')
+    
     if phone_summary:
         aggregated['phone_app_summary'] = phone_summary
         if phone_app_by_time_range:

@@ -196,21 +196,32 @@ def format_active_ranges(data_summary):
 {ranges_str}
 """
 
+def _format_key_label(key, fallback):
+    if not key or key in ('computer_app', 'computer_app_2'):
+        return fallback
+    # 替换下划线/连字符为空格，首字母大写
+    return ' '.join(word.capitalize() for word in key.replace('_', ' ').replace('-', ' ').split())
+
 def format_app_usage(data_summary, platform='phone'):
     """应用使用摘要"""
     if platform == 'computer_2':
         key = 'computer_app_2_summary'
         by_time_key = 'computer_app_2_by_time_range'
-        title = "电脑（设备二）应用"
+        custom_key = data_summary.get('computer_key_2')
+        title_base = _format_key_label(custom_key, "电脑（设备二）")
     elif platform == 'computer':
         key = 'computer_app_summary'
         by_time_key = 'computer_app_by_time_range'
-        title = "电脑（设备一）应用"
+        custom_key = data_summary.get('computer_key')
+        has_comp2 = 'computer_app_2_summary' in data_summary or 'computer_app_2_by_time_range' in data_summary
+        fallback_title = "电脑（设备一）" if has_comp2 else "电脑"
+        title_base = _format_key_label(custom_key, fallback_title)
     else:
         key = f'{platform}_app_summary'
         by_time_key = f'{platform}_app_by_time_range'
-        title = "手机应用" if platform == 'phone' else "电脑应用"
+        title_base = "手机" if platform == 'phone' else "电脑"
     
+    title = f"{title_base}应用"
     content = ""
     summary = data_summary.get(key)
     if summary:
