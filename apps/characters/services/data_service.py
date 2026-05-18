@@ -450,9 +450,14 @@ def aggregate_status_data(character, field_mappings, target_date, end_datetime=N
     steps_summary, steps_by_hour = _compute_steps_summary(steps_data)
     
     # 计算按时间范围聚合的应用数据
-    phone_app_by_time_range = _compute_app_by_time_range(phone_app_usage, end_datetime, other_usage=computer_app_usage)
-    computer_app_by_time_range = _compute_app_by_time_range(computer_app_usage, end_datetime, other_usage=phone_app_usage)
-    computer_app_2_by_time_range = _compute_app_by_time_range(computer_app_2_usage, end_datetime, other_usage=phone_app_usage)
+    # 为了准确切分，每个设备应当以所有其他设备的活跃记录合并排序后作为 other_usage 截断判定
+    phone_other_usage = sorted(computer_app_usage + computer_app_2_usage, key=lambda x: x['timestamp'])
+    computer_other_usage = sorted(phone_app_usage + computer_app_2_usage, key=lambda x: x['timestamp'])
+    computer_2_other_usage = sorted(phone_app_usage + computer_app_usage, key=lambda x: x['timestamp'])
+
+    phone_app_by_time_range = _compute_app_by_time_range(phone_app_usage, end_datetime, other_usage=phone_other_usage)
+    computer_app_by_time_range = _compute_app_by_time_range(computer_app_usage, end_datetime, other_usage=computer_other_usage)
+    computer_app_2_by_time_range = _compute_app_by_time_range(computer_app_2_usage, end_datetime, other_usage=computer_2_other_usage)
     
     # 计算活跃时间区间
     last_record_time = timezone.localtime(latest_status.timestamp) if latest_status else None
