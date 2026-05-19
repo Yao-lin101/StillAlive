@@ -545,37 +545,32 @@ def aggregate_status_data(character, field_mappings, target_date, end_datetime=N
         end_str = end.strftime('%H:%M')
         formatted_yesterday_ranges.append(f"{start_str}-{end_str}")
     
-    # 处理前天的活跃时间
-    day_before_yesterday_hours, day_before_yesterday_timestamps = _get_historical_active_hours(
-        character, 
-        start_datetime - timedelta(days=2), 
-        start_datetime - timedelta(days=1),
-        field_mappings
-    )
-    # 计算前天的活跃时间区间
-    day_before_yesterday_ranges = _compute_active_time_ranges(day_before_yesterday_timestamps, None)
+    # 不再查询前天的数据，以降低数据库开销
     formatted_day_before_yesterday_ranges = []
-    for start, end in day_before_yesterday_ranges:
-        start_str = start.strftime('%H:%M')
-        end_str = end.strftime('%H:%M')
-        formatted_day_before_yesterday_ranges.append(f"{start_str}-{end_str}")
     
     aggregated['yesterday_active_time_ranges'] = formatted_yesterday_ranges
     aggregated['day_before_yesterday_active_time_ranges'] = formatted_day_before_yesterday_ranges
     
-    # 全局时间轴合并（跨越前天、昨天、今天的三天数据统一合并）
+    # 全局时间轴合并（仅保留昨天入睡前最后一段活跃时段 + 今天数据）
     def format_relative_time(dt, t_date):
         local_dt = timezone.localtime(dt) if timezone.is_aware(dt) else dt
         if local_dt.date() == t_date:
             return f"今天 {local_dt.strftime('%H:%M')}"
         elif local_dt.date() == t_date - timedelta(days=1):
             return f"昨天 {local_dt.strftime('%H:%M')}"
-        elif local_dt.date() == t_date - timedelta(days=2):
-            return f"前天 {local_dt.strftime('%H:%M')}"
         else:
             return local_dt.strftime('%m-%d %H:%M')
 
-    all_timestamps = day_before_yesterday_timestamps + yesterday_timestamps + active_timestamps
+    # 仅提取昨日最后一段活跃区间的活跃时间点作为“昨天-今天”的交界辅助数据
+    yesterday_transition_timestamps = []
+    if yesterday_ranges:
+        last_range_start, last_range_end = yesterday_ranges[-1]
+        yesterday_transition_timestamps = [
+            ts for ts in yesterday_timestamps 
+            if last_range_start <= ts <= last_range_end
+        ]
+
+    all_timestamps = yesterday_transition_timestamps + active_timestamps
     # active_timestamps 已通过各天的查询得到，按顺序拼接即为递增状态
     global_ranges = _compute_active_time_ranges(all_timestamps, last_record_time)
     
