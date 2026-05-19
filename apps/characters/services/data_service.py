@@ -3,6 +3,7 @@ from django.utils import timezone
 from datetime import timedelta, datetime
 from collections import defaultdict, Counter
 from apps.characters.models import CharacterStatus
+from .utils import get_base_name
 
 logger = logging.getLogger(__name__)
 
@@ -84,15 +85,6 @@ def _compute_app_summary(app_usage):
     if not app_usage:
         return None, None
         
-    def get_base_name(name):
-        if not name:
-            return ""
-        # 兼容英文半角和中文全角冒号，只保留冒号前的应用名称
-        for char in (':', '：'):
-            if char in name:
-                return name.split(char, 1)[0].strip()
-        return name.strip()
-
     counter = Counter(get_base_name(item['app']) for item in app_usage)
     summary = dict(counter.most_common(20))
     
@@ -107,38 +99,57 @@ def _compute_app_summary(app_usage):
     return summary, by_hour
 
 
-def _compute_app_duration(app_usage):
-    """计算应用的使用时长（分钟），基于应用切换间隔"""
+def _compute_app_duration(app_usage, end_datetime=None, other_usage=None):
+    """计算应用的使用时长（分钟），与 _compute_app_by_time_range 的计算规则完全一致"""
     if not app_usage:
         return None, None
-    
+        
     # 按时间排序
     sorted_usage = sorted(app_usage, key=lambda x: x['timestamp'])
+    
+    # 确定数据的最晚结束时间（用于最后一个应用的时长计算，与 _compute_app_by_time_range 一致）
+    final_boundary = end_datetime if end_datetime else sorted_usage[-1]['timestamp'].replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
     
     # 合并连续使用的同一个应用
     merged_usage = []
     for item in sorted_usage:
-        if not merged_usage or merged_usage[-1]['app'] != item['app']:
-            merged_usage.append(item)
-    
+        cleaned_app = get_base_name(item['app'])
+        if not merged_usage or merged_usage[-1]['app'] != cleaned_app:
+            merged_usage.append({
+                'hour': item['hour'],
+                'app': cleaned_app,
+                'timestamp': item['timestamp']
+            })
+            
     duration_summary = defaultdict(float)
     duration_by_hour = defaultdict(lambda: defaultdict(float))
     
     # 计算每个应用的使用时长
     for i, current in enumerate(merged_usage):
+        current_time = current['timestamp']
+        
+        # 默认结束时间是下一个应用记录时间
         if i < len(merged_usage) - 1:
-            next_item = merged_usage[i + 1]
-            duration = (next_item['timestamp'] - current['timestamp']).total_seconds() / 60
+            next_time = merged_usage[i + 1]['timestamp']
         else:
-            # 最后一个应用，假设使用到下一个小时的开始
-            next_hour = current['timestamp'].replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
-            duration = (next_hour - current['timestamp']).total_seconds() / 60
+            next_time = final_boundary
+            
+        duration = (next_time - current_time).total_seconds() / 60
         
-
-        
+        # 匹配原本时长范围（_compute_app_by_time_range）的跨设备截断判定
+        if other_usage and duration >= 30.0:
+            other_events = [x['timestamp'] for x in other_usage if current_time < x['timestamp'] < next_time]
+            # 长线任务超过30分钟，且被另一端截断3次以上，直接以第一次介入点为准
+            if len(other_events) >= 3:
+                next_time = other_events[0]
+                duration = (next_time - current_time).total_seconds() / 60
+                
+        # 匹配原本时长范围的 3 小时异常挂机清理逻辑
+        if duration >= 180.0:
+            continue
+            
         # 处理跨小时边界的情况
         current_hour = current['hour']
-        current_time = current['timestamp']
         hour_end = current_time.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
         
         if current_time + timedelta(minutes=duration) <= hour_end:
@@ -148,18 +159,21 @@ def _compute_app_duration(app_usage):
         else:
             # 跨小时
             hours_duration = (hour_end - current_time).total_seconds() / 60
+            if hours_duration > duration:
+                hours_duration = duration
             duration_summary[current['app']] += duration
             duration_by_hour[current_hour][current['app']] += hours_duration
             
             # 计算下一个小时的时长
             next_hour_duration = duration - hours_duration
-            next_hour_num = (current_hour + 1) % 24
-            duration_by_hour[next_hour_num][current['app']] += next_hour_duration
+            if next_hour_duration > 0:
+                next_hour_num = (current_hour + 1) % 24
+                duration_by_hour[next_hour_num][current['app']] += next_hour_duration
     
-    # 转换为普通字典
-    summary = dict(duration_summary)
+    # 转换为普通字典并四舍五入
+    summary = {k: round(v, 1) for k, v in duration_summary.items()}
     by_hour = {
-        str(hour): dict(apps)
+        str(hour): {k: round(v, 1) for k, v in apps.items()}
         for hour, apps in duration_by_hour.items()
     }
     
@@ -456,13 +470,17 @@ def aggregate_status_data(character, field_mappings, target_date, end_datetime=N
     phone_summary, phone_by_hour = _compute_app_summary(phone_app_usage)
     computer_summary, computer_by_hour = _compute_app_summary(computer_app_usage)
     computer_2_summary, computer_2_by_hour = _compute_app_summary(computer_app_2_usage)
-    steps_summary, steps_by_hour = _compute_steps_summary(steps_data)
     
-    # 计算按时间范围聚合的应用数据
     # 为了准确切分，每个设备应当以所有其他设备的活跃记录合并排序后作为 other_usage 截断判定
     phone_other_usage = sorted(computer_app_usage + computer_app_2_usage, key=lambda x: x['timestamp'])
     computer_other_usage = sorted(phone_app_usage + computer_app_2_usage, key=lambda x: x['timestamp'])
     computer_2_other_usage = sorted(phone_app_usage + computer_app_usage, key=lambda x: x['timestamp'])
+
+    phone_duration, phone_duration_by_hour = _compute_app_duration(phone_app_usage, end_datetime=end_datetime, other_usage=phone_other_usage)
+    computer_duration, computer_duration_by_hour = _compute_app_duration(computer_app_usage, end_datetime=end_datetime, other_usage=computer_other_usage)
+    computer_2_duration, computer_2_duration_by_hour = _compute_app_duration(computer_app_2_usage, end_datetime=end_datetime, other_usage=computer_2_other_usage)
+    
+    steps_summary, steps_by_hour = _compute_steps_summary(steps_data)
 
     phone_app_by_time_range = _compute_app_by_time_range(phone_app_usage, end_datetime, other_usage=phone_other_usage)
     computer_app_by_time_range = _compute_app_by_time_range(computer_app_usage, end_datetime, other_usage=computer_other_usage)
@@ -474,10 +492,12 @@ def aggregate_status_data(character, field_mappings, target_date, end_datetime=N
     
     # 格式化活跃时间区间为字符串列表
     formatted_active_ranges = []
+    total_active_duration = 0.0
     for start, end in active_time_ranges:
         start_str = start.strftime('%H:%M')
         end_str = end.strftime('%H:%M')
         formatted_active_ranges.append(f"{start_str}-{end_str}")
+        total_active_duration += (end - start).total_seconds() / 60
     
     aggregated = {
         'date': target_date.isoformat(),
@@ -485,6 +505,7 @@ def aggregate_status_data(character, field_mappings, target_date, end_datetime=N
         'last_record_time': last_record_time.isoformat() if last_record_time else None,
         'data_cutoff_time': timezone.localtime(end_datetime).isoformat() if timezone.is_aware(end_datetime) else end_datetime.isoformat(),
         'active_time_ranges': formatted_active_ranges,
+        'total_active_duration': round(total_active_duration, 1),
     }
     
     if field_mappings:
@@ -493,16 +514,22 @@ def aggregate_status_data(character, field_mappings, target_date, end_datetime=N
     
     if phone_summary:
         aggregated['phone_app_summary'] = phone_summary
+        if phone_duration:
+            aggregated['phone_app_duration_summary'] = phone_duration
         if phone_app_by_time_range:
             aggregated['phone_app_by_time_range'] = phone_app_by_time_range
         
     if computer_summary:
         aggregated['computer_app_summary'] = computer_summary
+        if computer_duration:
+            aggregated['computer_app_duration_summary'] = computer_duration
         if computer_app_by_time_range:
             aggregated['computer_app_by_time_range'] = computer_app_by_time_range
 
     if computer_2_summary:
         aggregated['computer_app_2_summary'] = computer_2_summary
+        if computer_2_duration:
+            aggregated['computer_app_2_duration_summary'] = computer_2_duration
         if computer_app_2_by_time_range:
             aggregated['computer_app_2_by_time_range'] = computer_app_2_by_time_range
         

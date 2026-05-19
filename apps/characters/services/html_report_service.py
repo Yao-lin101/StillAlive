@@ -12,15 +12,7 @@ import re
 
 logger = logging.getLogger(__name__)
 
-def _clean_app_name(name):
-    """清洗应用名称，合并浏览器标题等冗余信息（仅用于前端展示脱敏）"""
-    if not name:
-        return name
-    # 兼容英文半角和中文全角冒号，清洗并聚合冒号前的应用名
-    for char in (':', '：'):
-        if char in name:
-            return name.split(char, 1)[0].strip()
-    return name.strip()
+from .utils import get_base_name as _clean_app_name
 
 
 # ──────────────────────────────────────────────
@@ -152,6 +144,69 @@ def _build_activity_timeline(raw_data: dict) -> dict:
 # App使用情况图表数据处理
 # ──────────────────────────────────────────────
 
+def _parse_durations_from_time_range(by_time_range: dict) -> dict:
+    """
+    从 by_time_range 中解析每个应用的使用时长（作为 fallback）
+    """
+    durations = defaultdict(float)
+    if not isinstance(by_time_range, dict):
+        return dict(durations)
+        
+    duration_pattern = re.compile(r'共([\d.]+)m')
+    
+    for time_range, apps in by_time_range.items():
+        if not isinstance(apps, dict):
+            continue
+        for app_name, val in apps.items():
+            cleaned_k = _clean_app_name(app_name)
+            if isinstance(val, (int, float)):
+                durations[cleaned_k] += val
+            elif isinstance(val, list):
+                durations[cleaned_k] += sum(x for x in val if isinstance(x, (int, float)))
+            elif isinstance(val, str):
+                match = duration_pattern.search(val)
+                if match:
+                    try:
+                        durations[cleaned_k] += float(match.group(1))
+                    except ValueError:
+                        pass
+                        
+    return {k: round(v, 1) for k, v in durations.items()}
+
+
+def _parse_active_duration(raw_data: dict) -> float:
+    """
+    计算真正的交错总活跃时长。
+    优先从 raw_data.total_active_duration 中读取。
+    如果不存在（历史报告数据），则解析 active_time_ranges 列表，计算各区间的总时长。
+    """
+    if "total_active_duration" in raw_data:
+        return raw_data["total_active_duration"] or 0.0
+
+    active_ranges = raw_data.get("active_time_ranges", []) or []
+    total_minutes = 0.0
+    for r in active_ranges:
+        if not isinstance(r, str) or "-" not in r:
+            continue
+        try:
+            start_str, end_str = r.split("-")
+            h1, m1 = map(int, start_str.split(":"))
+            h2, m2 = map(int, end_str.split(":"))
+            
+            # 转换为当天过后的分钟数进行计算
+            start_min = h1 * 60 + m1
+            end_min = h2 * 60 + m2
+            
+            # 处理跨天情况（例如 23:00-01:30）
+            if end_min < start_min:
+                end_min += 24 * 60
+                
+            total_minutes += (end_min - start_min)
+        except Exception:
+            continue
+    return total_minutes
+
+
 def _build_app_usage_chart(raw_data: dict) -> dict:
     """
     合并手机和电脑的App使用情况，生成饼图/横条图数据。
@@ -161,24 +216,54 @@ def _build_app_usage_chart(raw_data: dict) -> dict:
     computer_apps = raw_data.get("computer_app_summary", {}) or {}
     computer_2_apps = raw_data.get("computer_app_2_summary", {}) or {}
 
-    # 构建分设备数据（取Top8）
-    def top_apps(app_dict: dict, limit: int = 8) -> list:
-        if not isinstance(app_dict, dict):
-            return []
-        sorted_apps = sorted(app_dict.items(), key=lambda x: x[1], reverse=True)
-        return [{"name": k, "count": v} for k, v in sorted_apps[:limit]]
+    # 获取/解析时长数据
+    phone_durations = raw_data.get("phone_app_duration_summary")
+    if phone_durations is None:
+        phone_durations = _parse_durations_from_time_range(raw_data.get("phone_app_by_time_range", {}))
 
-    # 合并计算总使用频次（用于展示总览）并进行清洗
-    merged = defaultdict(int)
+    computer_durations = raw_data.get("computer_app_duration_summary")
+    if computer_durations is None:
+        computer_durations = _parse_durations_from_time_range(raw_data.get("computer_app_by_time_range", {}))
+
+    computer_2_durations = raw_data.get("computer_app_2_duration_summary")
+    if computer_2_durations is None:
+        computer_2_durations = _parse_durations_from_time_range(raw_data.get("computer_app_2_by_time_range", {}))
+
+    # 同时也清洗分设备的时长数据
+    def process_duration_dict(dur_dict: dict) -> dict:
+        if not isinstance(dur_dict, dict): return {}
+        cleaned = defaultdict(float)
+        for k, v in dur_dict.items():
+            cleaned[_clean_app_name(k)] += v
+        return {k: round(v, 1) for k, v in cleaned.items()}
+
+    phone_dur_cleaned = process_duration_dict(phone_durations)
+    computer_dur_cleaned = process_duration_dict(computer_durations)
+    computer_2_dur_cleaned = process_duration_dict(computer_2_durations)
+
+    # 合并计算总使用频次和总时长（用于展示总览）并进行清洗
+    merged_count = defaultdict(int)
+    merged_duration = defaultdict(float)
+    
     for k, v in phone_apps.items():
         clean_k = _clean_app_name(k)
-        merged[clean_k] += v
+        merged_count[clean_k] += v
     for k, v in computer_apps.items():
         clean_k = _clean_app_name(k)
-        merged[clean_k] += v
+        merged_count[clean_k] += v
     for k, v in computer_2_apps.items():
         clean_k = _clean_app_name(k)
-        merged[clean_k] += v
+        merged_count[clean_k] += v
+
+    for k, v in phone_durations.items():
+        clean_k = _clean_app_name(k)
+        merged_duration[clean_k] += v
+    for k, v in computer_durations.items():
+        clean_k = _clean_app_name(k)
+        merged_duration[clean_k] += v
+    for k, v in computer_2_durations.items():
+        clean_k = _clean_app_name(k)
+        merged_duration[clean_k] += v
 
     # 同时也清洗分设备的数据
     def process_app_dict(app_dict: dict) -> dict:
@@ -192,16 +277,52 @@ def _build_app_usage_chart(raw_data: dict) -> dict:
     computer_cleaned = process_app_dict(computer_apps)
     computer_2_cleaned = process_app_dict(computer_2_apps)
 
-    phone_top = top_apps(phone_cleaned)
-    computer_top = top_apps(computer_cleaned)
-    computer_2_top = top_apps(computer_2_cleaned)
+    # 构建分设备数据（根据是否有时间数据决定按时长还是频次排序，取Top8）
+    def top_apps(app_dict: dict, duration_dict: dict, limit: int = 8) -> list:
+        if not isinstance(app_dict, dict):
+            return []
+        has_duration = any(v > 0 for v in duration_dict.values()) if duration_dict else False
+        if has_duration:
+            sorted_apps = sorted(app_dict.items(), key=lambda x: (duration_dict.get(x[0], 0.0), x[1]), reverse=True)
+        else:
+            sorted_apps = sorted(app_dict.items(), key=lambda x: x[1], reverse=True)
+        result = []
+        for k, v in sorted_apps[:limit]:
+            dur = duration_dict.get(k, 0.0) if duration_dict else 0.0
+            result.append({
+                "name": k,
+                "count": v,
+                "duration": round(dur, 1)
+            })
+        return result
 
-    all_top = sorted(merged.items(), key=lambda x: x[1], reverse=True)[:10]
-    combined = [{"name": k, "count": v} for k, v in all_top]
+    phone_top = top_apps(phone_cleaned, phone_dur_cleaned)
+    computer_top = top_apps(computer_cleaned, computer_dur_cleaned)
+    computer_2_top = top_apps(computer_2_cleaned, computer_2_dur_cleaned)
+
+    has_combined_duration = any(v > 0 for v in merged_duration.values())
+    if has_combined_duration:
+        all_top = sorted(merged_count.items(), key=lambda x: (merged_duration.get(x[0], 0.0), x[1]), reverse=True)[:10]
+    else:
+        all_top = sorted(merged_count.items(), key=lambda x: x[1], reverse=True)[:10]
+    combined = []
+    for k, v in all_top:
+        dur = merged_duration.get(k, 0.0)
+        combined.append({
+            "name": k,
+            "count": v,
+            "duration": round(dur, 1)
+        })
 
     total_phone = sum(phone_apps.values()) if phone_apps else 0
     total_computer = sum(computer_apps.values()) if computer_apps else 0
     total_computer_2 = sum(computer_2_apps.values()) if computer_2_apps else 0
+
+    total_phone_duration = sum(phone_durations.values()) if phone_durations else 0.0
+    total_computer_duration = (sum(computer_durations.values()) if computer_durations else 0.0) + \
+                              (sum(computer_2_durations.values()) if computer_2_durations else 0.0)
+
+    total_active_duration = _parse_active_duration(raw_data)
 
     return {
         "phone": phone_top,
@@ -210,6 +331,9 @@ def _build_app_usage_chart(raw_data: dict) -> dict:
         "combined": combined,
         "total_phone_records": total_phone,
         "total_computer_records": total_computer + total_computer_2,
+        "total_phone_duration": round(total_phone_duration, 1),
+        "total_computer_duration": round(total_computer_duration, 1),
+        "total_active_duration": round(total_active_duration, 1),
         "has_phone": bool(phone_top),
         "has_computer": bool(computer_top) or bool(computer_2_top),
         "computer_key": raw_data.get("computer_key"),

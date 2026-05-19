@@ -105,3 +105,138 @@ class DataServiceTests(TestCase):
         # Ensure yesterday's morning range (09:00 到 10:00) is NOT in global ranges
         for r in global_ranges:
             self.assertNotIn('09:00', r if '昨天' in r else '')
+
+    def test_aggregate_status_data_app_duration(self):
+        """
+        Verify that aggregate_status_data correctly computes duration summaries for apps,
+        properly cleans app names, and handles time calculations.
+        """
+        target_date = datetime(2024, 1, 2).date()
+        
+        def create_status(dt, app):
+            status = CharacterStatus.objects.create(
+                character=self.character,
+                status_type='status',
+                data={'phone': app, 'steps': 0}
+            )
+            CharacterStatus.objects.filter(id=status.id).update(timestamp=timezone.make_aware(dt))
+
+        # We create a sequence of statuses:
+        # 1. 2024-01-02 09:00: WeChat: chat with Alice
+        # 2. 2024-01-02 09:10: WeChat: chat with Bob (should merge with Alice into WeChat, total duration 10 mins)
+        # 3. 2024-01-02 09:15: Chrome: Google Search (duration 15 mins)
+        # 4. 2024-01-02 09:30: WeChat: Chat (duration 30 mins, since next hour end)
+        create_status(datetime(2024, 1, 2, 9, 0), 'WeChat: chat with Alice')
+        create_status(datetime(2024, 1, 2, 9, 10), 'WeChat: chat with Bob')
+        create_status(datetime(2024, 1, 2, 9, 15), 'Chrome: Google Search')
+        create_status(datetime(2024, 1, 2, 9, 30), 'WeChat: Chat')
+
+        end_datetime = timezone.make_aware(datetime(2024, 1, 3, 0, 0))
+
+        aggregated = aggregate_status_data(
+            character=self.character,
+            field_mappings=self.field_mappings,
+            target_date=target_date,
+            end_datetime=end_datetime
+        )
+
+        self.assertIsNotNone(aggregated)
+        
+        # Verify count summary
+        phone_summary = aggregated.get('phone_app_summary')
+        self.assertIsNotNone(phone_summary)
+        # Raw counts (without merging consecutive cleaned apps, or after merging? Wait, _compute_app_summary cleans it and computes counts)
+        # Let's check:
+        # WeChat: chat with Alice (1)
+        # WeChat: chat with Bob (1)
+        # Chrome: Google Search (1)
+        # WeChat: Chat (1)
+        # Cleaned keys: WeChat (3), Chrome (1)
+        self.assertEqual(phone_summary.get('WeChat'), 3)
+        self.assertEqual(phone_summary.get('Chrome'), 1)
+
+        # Verify duration summary
+        phone_duration_summary = aggregated.get('phone_app_duration_summary')
+        self.assertIsNotNone(phone_duration_summary)
+        
+        # Chronological sequence of cleaned apps:
+        # - 09:00 to 09:15: WeChat (15 mins) -> Wait! 09:00 WeChat, 09:10 WeChat.
+        # Since both clean to WeChat, they are merged.
+        # The next different app starts at 09:15 (Chrome).
+        # So duration of WeChat is 09:15 - 09:00 = 15 mins.
+        # - 09:15 to 09:30: Chrome (15 mins) -> Next app is WeChat at 09:30.
+        # So duration of Chrome is 09:30 - 09:15 = 15 mins.
+        # - 09:30 to 24:00 (end of day): WeChat (870 mins) -> filtered out as idle (>= 180 mins).
+        # Total durations:
+        # - WeChat: 15.0 mins.
+        # - Chrome: 15.0 mins.
+        self.assertAlmostEqual(phone_duration_summary.get('WeChat'), 15.0, places=1)
+        self.assertAlmostEqual(phone_duration_summary.get('Chrome'), 15.0, places=1)
+
+        # Verify total active duration
+        total_active_duration = aggregated.get('total_active_duration')
+        self.assertIsNotNone(total_active_duration)
+        self.assertTrue(total_active_duration > 0)
+
+    def test_aggregate_status_data_cross_device_truncation(self):
+        """
+        Verify that aggregate_status_data truncates app durations based on activity on other devices
+        matching the exact logic from the time range calculation (truncates at first other event
+        if there are at least 3 other-device events).
+        """
+        target_date = datetime(2024, 1, 3).date()
+        
+        def create_status(dt, device, app):
+            status = CharacterStatus.objects.create(
+                character=self.character,
+                status_type='status',
+                data={device: app, 'steps': 0}
+            )
+            CharacterStatus.objects.filter(id=status.id).update(timestamp=timezone.make_aware(dt))
+            
+        # 1. WeChat segment: Phone WeChat at 09:00. Next phone event is QQ at 10:00.
+        # Interrupted by 3 computer events at 09:10, 09:15, 09:20.
+        # Truncates at first: 09:10 (duration 10 mins).
+        create_status(datetime(2024, 1, 3, 9, 0), 'phone', 'WeChat')
+        create_status(datetime(2024, 1, 3, 9, 10), 'computer', 'VS Code')
+        create_status(datetime(2024, 1, 3, 9, 15), 'computer', 'VS Code')
+        create_status(datetime(2024, 1, 3, 9, 20), 'computer', 'VS Code')
+        
+        # 2. QQ segment: Phone QQ at 10:00. Next phone event is WeChat at 15:00.
+        # Interrupted by 3 computer events at 10:20, 10:25, 10:30.
+        # Truncates at first: 10:20 (duration 20 mins).
+        create_status(datetime(2024, 1, 3, 10, 0), 'phone', 'QQ')
+        create_status(datetime(2024, 1, 3, 10, 20), 'computer', 'VS Code')
+        create_status(datetime(2024, 1, 3, 10, 25), 'computer', 'VS Code')
+        create_status(datetime(2024, 1, 3, 10, 30), 'computer', 'VS Code')
+        
+        # 3. Second WeChat segment: Phone WeChat at 15:00.
+        # Interrupted by 3 computer events at 15:30, 15:35, 15:40.
+        # Truncates at first: 15:30 (duration 30 mins).
+        create_status(datetime(2024, 1, 3, 15, 0), 'phone', 'WeChat')
+        create_status(datetime(2024, 1, 3, 15, 30), 'computer', 'VS Code')
+        create_status(datetime(2024, 1, 3, 15, 35), 'computer', 'VS Code')
+        create_status(datetime(2024, 1, 3, 15, 40), 'computer', 'VS Code')
+
+        end_datetime = timezone.make_aware(datetime(2024, 1, 4, 0, 0))
+        
+        field_mappings = {
+            'phone_app': 'phone',
+            'computer_app': 'computer',
+            'steps': 'steps'
+        }
+        
+        aggregated = aggregate_status_data(
+            character=self.character,
+            field_mappings=field_mappings,
+            target_date=target_date,
+            end_datetime=end_datetime
+        )
+        
+        self.assertIsNotNone(aggregated)
+        
+        # Verify Phone WeChat total = 10m + 30m = 40.0m
+        # Verify Phone QQ total = 20.0m
+        phone_durations = aggregated.get('phone_app_duration_summary', {})
+        self.assertAlmostEqual(phone_durations.get('WeChat'), 40.0, places=1)
+        self.assertAlmostEqual(phone_durations.get('QQ'), 20.0, places=1)
