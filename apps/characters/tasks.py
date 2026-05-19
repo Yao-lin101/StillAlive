@@ -306,10 +306,6 @@ def generate_daily_reports(self):
                     success_count += 1
                     logger.info(f"Successfully updated report for {character.name} on {target_date}")
                     
-                    # --- 重构：侧写更新已移至 0:20 独立执行 ---
-                    # if is_final_summary:
-                    #     update_system_persona(config, analysis_result.get('markdown', ''))
-                
                 else:
                     logger.info(f"No existing report for {character.name} on {target_date}, creating new report")
                     memory_context = ''
@@ -367,10 +363,6 @@ def generate_daily_reports(self):
                     success_count += 1
                     logger.info(f"Successfully created report for {character.name} on {target_date}")
                     
-                    # --- 重构：侧写更新已移至 0:20 独立执行 ---
-                    # if is_final_summary:
-                    #     update_system_persona(config, analysis_result.get('markdown', ''))
-                
             except Exception as e:
                 failed_count += 1
                 logger.error(f"Failed to generate report for character {config.character.name if config.character else 'unknown'} on {target_date}: {str(e)}")
