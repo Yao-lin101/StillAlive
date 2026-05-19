@@ -16,16 +16,11 @@ def _clean_app_name(name):
     """清洗应用名称，合并浏览器标题等冗余信息（仅用于前端展示脱敏）"""
     if not name:
         return name
-    # 匹配常见浏览器及其标题
-    browser_patterns = [
-        r'^(Google Chrome|Microsoft Edge|Safari|Firefox|Arc|Opera):.*',
-        r'^(Google Chrome|Microsoft Edge|Safari|Firefox|Arc|Opera)$'
-    ]
-    for pattern in browser_patterns:
-        match = re.match(pattern, name, re.IGNORECASE)
-        if match:
-            return match.group(1)
-    return name
+    # 兼容英文半角和中文全角冒号，清洗并聚合冒号前的应用名
+    for char in (':', '：'):
+        if char in name:
+            return name.split(char, 1)[0].strip()
+    return name.strip()
 
 
 # ──────────────────────────────────────────────

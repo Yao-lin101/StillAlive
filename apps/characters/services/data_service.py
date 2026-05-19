@@ -84,12 +84,21 @@ def _compute_app_summary(app_usage):
     if not app_usage:
         return None, None
         
-    counter = Counter(item['app'] for item in app_usage)
+    def get_base_name(name):
+        if not name:
+            return ""
+        # 兼容英文半角和中文全角冒号，只保留冒号前的应用名称
+        for char in (':', '：'):
+            if char in name:
+                return name.split(char, 1)[0].strip()
+        return name.strip()
+
+    counter = Counter(get_base_name(item['app']) for item in app_usage)
     summary = dict(counter.most_common(20))
     
     hourly = defaultdict(list)
     for item in app_usage:
-        hourly[item['hour']].append(item['app'])
+        hourly[item['hour']].append(get_base_name(item['app']))
         
     by_hour = {
         str(hour): dict(Counter(apps).most_common(5))
