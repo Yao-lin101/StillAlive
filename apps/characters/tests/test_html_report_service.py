@@ -116,3 +116,46 @@ class HtmlReportServiceTests(TestCase):
             ]
         }
         self.assertAlmostEqual(_parse_active_duration(raw_data_fallback), 225.0, places=1)
+
+    def test_format_app_usage_with_durations(self):
+        """
+        Verify that format_app_usage combines both counts and durations in prompt outputs.
+        """
+        from apps.characters.services.llm_utils import format_app_usage
+        
+        data_summary = {
+            "phone_app_summary": {
+                "WeChat": 10,
+                "Safari": 3
+            },
+            "phone_app_duration_summary": {
+                "WeChat": 45.2,
+                "Safari": 5.0
+            }
+        }
+        
+        formatted = format_app_usage(data_summary, 'phone')
+        
+        # WeChat should have both count and duration
+        self.assertIn('"WeChat": "10次 (共45.2m)"', formatted)
+        self.assertIn('"Safari": "3次 (共5.0m)"', formatted)
+
+    def test_format_app_usage_legacy_fallback(self):
+        """
+        Verify that format_app_usage correctly parses durations from time range for legacy reports.
+        """
+        from apps.characters.services.llm_utils import format_app_usage
+        
+        data_summary = {
+            "phone_app_summary": {
+                "WeChat": 5
+            },
+            "phone_app_by_time_range": {
+                "09:00-10:00": {
+                    "WeChat": "5次(共40.0m,最长12.0m)"
+                }
+            }
+        }
+        
+        formatted = format_app_usage(data_summary, 'phone')
+        self.assertIn('"WeChat": "5次 (共40.0m)"', formatted)

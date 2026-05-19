@@ -207,11 +207,13 @@ def format_app_usage(data_summary, platform='phone'):
     if platform == 'computer_2':
         key = 'computer_app_2_summary'
         by_time_key = 'computer_app_2_by_time_range'
+        dur_key = 'computer_app_2_duration_summary'
         custom_key = data_summary.get('computer_key_2')
         title_base = _format_key_label(custom_key, "电脑（设备二）")
     elif platform == 'computer':
         key = 'computer_app_summary'
         by_time_key = 'computer_app_by_time_range'
+        dur_key = 'computer_app_duration_summary'
         custom_key = data_summary.get('computer_key')
         has_comp2 = 'computer_app_2_summary' in data_summary or 'computer_app_2_by_time_range' in data_summary
         fallback_title = "电脑（设备一）" if has_comp2 else "电脑"
@@ -219,13 +221,32 @@ def format_app_usage(data_summary, platform='phone'):
     else:
         key = f'{platform}_app_summary'
         by_time_key = f'{platform}_app_by_time_range'
+        dur_key = f'{platform}_app_duration_summary'
         title_base = "手机" if platform == 'phone' else "电脑"
     
     title = f"{title_base}应用"
     content = ""
     summary = data_summary.get(key)
     if summary:
-        content += f"\n## {title}（总计前20）\n{json.dumps(summary, ensure_ascii=False)}\n"
+        # 获取或者解析时长统计
+        durations = data_summary.get(dur_key)
+        if not durations:
+            detail = data_summary.get(by_time_key)
+            if detail:
+                from .html_report_service import _parse_durations_from_time_range
+                durations = _parse_durations_from_time_range(detail)
+        
+        if durations:
+            combined = {}
+            for app, count in summary.items():
+                dur = durations.get(app, 0.0)
+                if dur > 0:
+                    combined[app] = f"{count}次 (共{round(dur, 1)}m)"
+                else:
+                    combined[app] = f"{count}次"
+            content += f"\n## {title}（总计前20）\n{json.dumps(combined, ensure_ascii=False)}\n"
+        else:
+            content += f"\n## {title}（总计前20）\n{json.dumps(summary, ensure_ascii=False)}\n"
         
     # 详细时间轴（非紧凑模式下可用）
     detail = data_summary.get(by_time_key)
