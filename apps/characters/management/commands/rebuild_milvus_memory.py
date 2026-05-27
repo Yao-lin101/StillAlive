@@ -24,8 +24,8 @@ class Command(BaseCommand):
         parser.add_argument(
             '--batch-size',
             type=int,
-            default=50,
-            help='Batch size for syncing events (default is 50)',
+            default=5,
+            help='Batch size for syncing events (default is 5)',
         )
         parser.add_argument(
             '--force',
