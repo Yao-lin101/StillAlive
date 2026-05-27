@@ -36,7 +36,7 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         character_uid = options.get('character_uid')
         clean = options.get('clean')
-        batch_size = max(1, options.get('batch-size') or 50)
+        batch_size = max(1, options.get('batch_size') or 5)
         force = options.get('force')
 
         if not getattr(settings, 'IMPORTANT_EVENT_VECTOR_ENABLED', True):
