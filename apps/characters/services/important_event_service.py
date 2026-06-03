@@ -14,6 +14,7 @@ from django.utils import timezone
 from apps.characters.models import DailyReport, ImportantEvent
 from .llm_utils import extract_text_from_response
 from .vector_backends import get_vector_backend
+from .embedding_providers import generate_embedding, get_embedding_config
 
 
 logger = logging.getLogger(__name__)
@@ -354,57 +355,12 @@ def extract_important_events_for_report(report, force=False):
     return {'created': created, 'updated': updated, 'skipped': False}
 
 
-def _truncate_embedding_input(text):
-    if isinstance(text, list):
-        return [_truncate_embedding_input(t) for t in text]
-    
-    text = str(text or '').strip()
-    max_chars = int(getattr(settings, 'OLLAMA_EMBED_MAX_CHARS', 900))
-    if max_chars <= 0 or len(text) <= max_chars:
-        return text
-
-    truncated = text[:max_chars]
-    return truncated
-
-
 def _ollama_embed(text):
     """
-    调用 Ollama 生成向量。支持单个字符串或字符串列表（批量）。
+    生成向量（兼容旧名）。实际由 admin 可配置的嵌入提供商（Ollama / OpenAI 兼容）处理。
+    契约不变：str→单向量，list→向量列表，失败→None。
     """
-    if not text:
-        return None
-        
-    base_url = getattr(settings, 'OLLAMA_BASE_URL', 'http://127.0.0.1:11434').rstrip('/')
-    model = getattr(settings, 'OLLAMA_EMBED_MODEL', 'mxbai-embed-large')
-    
-    # 自动截断超长文本
-    processed_input = _truncate_embedding_input(text)
-    
-    payload = json.dumps({'model': model, 'input': processed_input}, ensure_ascii=False).encode('utf-8')
-    request = urllib.request.Request(
-        f'{base_url}/api/embed',
-        data=payload,
-        headers={'Content-Type': 'application/json'},
-        method='POST',
-    )
-
-    try:
-        # 增加超时到 60s 以支持大批量计算
-        with urllib.request.urlopen(request, timeout=60) as response:
-            data = json.loads(response.read().decode('utf-8'))
-    except Exception as exc:
-        logger.warning("Ollama embedding request failed: %s", exc)
-        return None
-
-    embeddings = data.get('embeddings')
-    if embeddings and isinstance(embeddings, list):
-        return [[float(x) for x in emb] for emb in embeddings]
-    
-    embedding = data.get('embedding')
-    if isinstance(embedding, list):
-        return [float(x) for x in embedding]
-        
-    return None
+    return generate_embedding(text)
 
 
 def sync_events_to_milvus(events):
@@ -749,7 +705,7 @@ def check_important_event_infra():
     result = {
         'memory_enabled': getattr(settings, 'IMPORTANT_EVENT_MEMORY_ENABLED', True),
         'vector_enabled': getattr(settings, 'IMPORTANT_EVENT_VECTOR_ENABLED', True),
-        'ollama_ok': None,
+        'embedding_ok': None,
         'vector_backend': None,
         'vector_ok': None,
     }
@@ -762,20 +718,24 @@ def check_important_event_infra():
         logger.info("Important event vector index is disabled; DB fallback retrieval remains available")
         return result
 
+    try:
+        cfg = get_embedding_config()
+    except Exception as exc:
+        # 表尚未迁移（如全新部署 migrate 之前）等情况，自检不应抛异常
+        logger.warning("Embedding config unavailable during infra check: %s", exc)
+        return result
+
     embedding = _ollama_embed("StillAlive important event memory infrastructure check")
-    result['ollama_ok'] = bool(embedding)
-    if result['ollama_ok']:
+    result['embedding_ok'] = bool(embedding)
+    if result['embedding_ok']:
         logger.info(
-            "Important event memory Ollama check OK: model=%s dim=%s base_url=%s",
-            getattr(settings, 'OLLAMA_EMBED_MODEL', 'mxbai-embed-large'),
-            len(embedding),
-            getattr(settings, 'OLLAMA_BASE_URL', ''),
+            "Important event memory embedding check OK: provider=%s model=%s dim=%s base_url=%s",
+            cfg.provider, cfg.model, len(embedding), cfg.base_url,
         )
     else:
         logger.warning(
-            "Important event memory Ollama check failed: base_url=%s model=%s",
-            getattr(settings, 'OLLAMA_BASE_URL', ''),
-            getattr(settings, 'OLLAMA_EMBED_MODEL', ''),
+            "Important event memory embedding check failed: provider=%s base_url=%s model=%s",
+            cfg.provider, cfg.base_url, cfg.model,
         )
 
     backend = get_vector_backend()

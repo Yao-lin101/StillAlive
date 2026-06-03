@@ -107,7 +107,11 @@ class MilvusBackend(VectorBackend):
                     connections.connect(**kwargs)
 
             if not utility.has_collection(collection_name, using=MILVUS_ALIAS):
-                dim = int(getattr(settings, 'OLLAMA_EMBED_DIM', 1024))
+                try:
+                    from .embedding_providers import get_embedding_config
+                    dim = int(get_embedding_config().dimensions)
+                except Exception:
+                    dim = int(getattr(settings, 'OLLAMA_EMBED_DIM', 1024))
                 fields = [
                     FieldSchema(name='event_id', dtype=DataType.VARCHAR, max_length=32, is_primary=True),
                     FieldSchema(name='character_uid', dtype=DataType.VARCHAR, max_length=64),

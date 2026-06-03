@@ -43,6 +43,9 @@ INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    # WhiteNoise 让 gunicorn 直接提供静态文件（admin / DRF），生产 DEBUG=False 下也可用。
+    # 必须紧跟在 SecurityMiddleware 之后。
+    'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'corsheaders.middleware.CorsMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -219,6 +222,8 @@ IMPORTANT_EVENT_QUERY_REWRITE_ENABLED = os.environ.get('IMPORTANT_EVENT_QUERY_RE
 IMPORTANT_EVENT_QUERY_REWRITE_MAX_TOKENS = int(os.environ.get('IMPORTANT_EVENT_QUERY_REWRITE_MAX_TOKENS', '512'))
 
 # Ollama embedding service
+# 注意：以下 OLLAMA_* 仅作为 EmbeddingConfig 单例「首次播种」的默认值；
+# 运行时嵌入配置以 admin「嵌入模型配置」为准（支持 Ollama / OpenAI 兼容，可热改）。
 OLLAMA_BASE_URL = os.environ.get('OLLAMA_BASE_URL', 'http://127.0.0.1:11434')
 OLLAMA_EMBED_MODEL = os.environ.get('OLLAMA_EMBED_MODEL', 'mxbai-embed-large')
 OLLAMA_EMBED_DIM = int(os.environ.get('OLLAMA_EMBED_DIM', '1024'))
