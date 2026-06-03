@@ -4,7 +4,7 @@
 
 1. **向量后端 Milvus → pgvector**（长期记忆语义检索改用 Postgres 自带 pgvector，可降级，不再强依赖 Milvus）
 2. **嵌入模型后台可配置**（admin「嵌入模型配置」，支持 Ollama / OpenAI 兼容，可热改 base_url / api_key / 模型 / 维度）
-3. **开放 admin 访问**（nginx 限 IP 白名单反代 `/admin/` 与 `/static/`）
+3. **开放 admin 访问**（nginx 用 Basic Auth 保护 `/admin/`，并反代 `/static/`）
 
 ---
 
@@ -47,14 +47,23 @@ docker compose exec web python manage.py createsuperuser
 ```
 
 ### nginx（开放 admin）
-- `all_nginx/nginx/stillalive.conf` 已加 `location /admin/`（IP 白名单）和 `location /static/`（反代 gunicorn）。
-- **改白名单 IP**：编辑 `stillalive.conf` 里 `location /admin/` 的 `allow` 行，填你的固定出口 IP（`curl ifconfig.me` / `curl ipinfo.io/ip` 查），然后：
+- `all_nginx/nginx/stillalive.conf` 已加 `location /admin/`（Basic Auth）和 `location /static/`（反代 gunicorn）。
+- **创建 Basic Auth 口令文件**（一次性，住宅 IP 动态，不再用 IP 白名单）：
 
 ```bash
+# 口令文件须放在容器内 /etc/nginx/conf.d/.htpasswd（= 宿主 all_nginx/nginx/.htpasswd）
+# 方式 A：用 nginx 容器自带的 openssl 生成（无需装 htpasswd）
+docker exec all_nginx sh -c \
+  "printf 'admin:%s\n' \"\$(openssl passwd -apr1 '你的强密码')\" > /etc/nginx/conf.d/.htpasswd"
+
+# 方式 B：宿主机有 htpasswd 时
+#   htpasswd -cb /www/wwwroot/all_nginx/.../nginx/.htpasswd admin '你的强密码'
+
+# 校验配置并重载
 docker exec all_nginx nginx -t && docker exec all_nginx nginx -s reload
 ```
 
-完成后从白名单 IP 访问 `https://alive.ineed.asia/admin/`。
+访问 `https://alive.ineed.asia/admin/`：先过浏览器密码框（上面设的 admin / 强密码），再进 Django 登录页。任意网络可用，无需再改 nginx。
 
 ---
 
@@ -83,9 +92,9 @@ docker exec all_nginx nginx -t && docker exec all_nginx nginx -s reload
 - **改模型/维度后旧向量维度与新查询不一致，cosine 检索会失效** → 必须点 admin「重建向量」或跑 `rebuild_milvus_memory --clean --force`。
 
 ### admin 访问
-- 白名单走 IPv4（服务器 nginx 仅 `listen 443`，未监听 IPv6）。
-- **住宅 IP 会变**：进不去时重新查 IP、改 `stillalive.conf` 的 `allow` 行、reload nginx。
+- `/admin/` 由 nginx Basic Auth 保护（口令文件 `all_nginx/nginx/.htpasswd`）。设一次永久生效，任意网络可用——住宅 IP 动态，**不要**用 IP 白名单。
 - admin 登录是 HTTPS 反代 POST，`CSRF_TRUSTED_ORIGINS=['https://alive.ineed.asia']` 已在 `production.py` 配好；换域名记得同步加。
+- 改 Basic Auth 密码：重跑上面的 htpasswd 生成命令覆盖 `.htpasswd`，再 `nginx -s reload`。
 
 ### 想继续用 Milvus（而非 pgvector）
 - 在服务器 env 设 `VECTOR_BACKEND=milvus`，并保留 Milvus 那套 docker 栈。
@@ -123,7 +132,8 @@ python manage.py rebuild_milvus_memory --clean --force
 | admin 打开是前端页面 | nginx 没路由 `/admin/`（确认 `stillalive.conf` 改动已 reload） |
 | admin 登录 403 CSRF | `CSRF_TRUSTED_ORIGINS` 未含当前域名 |
 | admin 样式全丢 | 没跑 `collectstatic`，或 `/static/` 未反代 / whitenoise 中间件缺失 |
-| admin 访问被拒（403/拒绝连接） | 你的出口 IP 不在白名单，重新查 IP 改 `allow` 行 |
+| admin 弹密码框但进不去 | Basic Auth 密码错，或 `.htpasswd` 路径/格式不对（须在 `/etc/nginx/conf.d/.htpasswd`） |
+| admin 不弹密码框直接 401 | `.htpasswd` 文件不存在或 nginx 没 reload |
 | 检索无语义结果、日志报维度不匹配 | 改过模型/维度未重建 → 点「重建向量」 |
 | 嵌入失败 502 / 超时 | 检查 `base_url` 指向的 Ollama / OpenAI 端点是否可达 |
 | 容器起不来 ImportError pgvector/whitenoise | 镜像没重建，`docker compose build` 后再 up |

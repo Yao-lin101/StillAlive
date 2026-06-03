@@ -91,6 +91,11 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
         if not text:
             return None
         base_url = (self.config.base_url or 'https://api.openai.com/v1').rstrip('/')
+        # 容忍用户把完整端点填进 base_url（如 .../v1/embeddings）：已含则不再拼接
+        if base_url.endswith('/embeddings'):
+            endpoint = base_url
+        else:
+            endpoint = f'{base_url}/embeddings'
         is_batch = isinstance(text, list)
         payload = {'model': self.config.model, 'input': self._truncate(text)}
         # dimensions 仅 text-embedding-3* 系列支持；其他模型/兼容端可能拒绝该参数。
@@ -103,7 +108,7 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
 
         try:
             data = self._post_json(
-                f'{base_url}/embeddings',
+                endpoint,
                 payload,
                 headers,
                 int(self.config.timeout or 60),
