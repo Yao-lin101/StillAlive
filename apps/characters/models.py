@@ -6,6 +6,7 @@ from django.utils import timezone
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.validators import validate_email
+from pgvector.django import VectorField
 
 def get_default_status_config():
     return {
@@ -338,7 +339,12 @@ class ImportantEvent(models.Model):
     evidence = models.JSONField(default=list, blank=True)
     source_hash = models.CharField(max_length=64, blank=True, default='')
     embedding_text = models.TextField(blank=True, default='')
+    # pgvector 后端：embedding 与事件存在同一行；Milvus 后端则不使用此列。
+    # 不固定维度：不同环境可用不同 embedding 模型（如 dev 768 / prod 1024），
+    # 同一迁移即可通用。代价是无法建 HNSW 索引——个人数据量走精确搜索即可。
+    embedding = VectorField(null=True, blank=True)
     is_active = models.BooleanField(default=True)
+    # 通用「向量已建索引」标记（Milvus / pgvector 共用）。
     milvus_synced = models.BooleanField(default=False)
     milvus_synced_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)

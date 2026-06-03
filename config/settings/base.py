@@ -224,6 +224,11 @@ OLLAMA_EMBED_MODEL = os.environ.get('OLLAMA_EMBED_MODEL', 'mxbai-embed-large')
 OLLAMA_EMBED_DIM = int(os.environ.get('OLLAMA_EMBED_DIM', '1024'))
 OLLAMA_EMBED_MAX_CHARS = int(os.environ.get('OLLAMA_EMBED_MAX_CHARS', '900'))
 
+# 向量后端选择：auto | pgvector | milvus | none
+#   auto（默认）：pgvector 可用则用 pgvector（零额外基础设施），否则回退 Milvus，再否则关闭语义检索。
+#   想继续使用 Milvus 的部署请显式设置 VECTOR_BACKEND=milvus。
+VECTOR_BACKEND = os.environ.get('VECTOR_BACKEND', 'auto')
+
 # Milvus vector index for important events
 MILVUS_URI = os.environ.get('MILVUS_URI', '')
 MILVUS_TOKEN = os.environ.get('MILVUS_TOKEN', '')

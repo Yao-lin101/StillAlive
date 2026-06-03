@@ -1,14 +1,12 @@
 from django.core.management.base import BaseCommand
-from django.utils import timezone
 from django.conf import settings
 from apps.characters.models import Character, ImportantEvent
-from apps.characters.services.important_event_service import (
-    sync_events_to_milvus,
-    _get_milvus_collection,
-)
+from apps.characters.services.important_event_service import sync_events_to_milvus
+from apps.characters.services.vector_backends import get_vector_backend
+
 
 class Command(BaseCommand):
-    help = 'Rebuild the Milvus memory index for important events from Postgres database'
+    help = 'Rebuild the vector memory index for important events from the Postgres database (backend-agnostic: Milvus or pgvector)'
 
     def add_arguments(self, parser):
         parser.add_argument(
@@ -19,7 +17,7 @@ class Command(BaseCommand):
         parser.add_argument(
             '--clean',
             action='store_true',
-            help='Drop the existing Milvus collection and recreate it from scratch',
+            help='Wipe the existing vectors before rebuilding (Milvus: drop collection; pgvector: clear embedding column)',
         )
         parser.add_argument(
             '--batch-size',
@@ -30,7 +28,7 @@ class Command(BaseCommand):
         parser.add_argument(
             '--force',
             action='store_true',
-            help='Force sync all events, even if they are already marked as milvus_synced=True',
+            help='Force sync all events, even if they are already marked as synced',
         )
 
     def handle(self, *args, **options):
@@ -42,35 +40,29 @@ class Command(BaseCommand):
         if not getattr(settings, 'IMPORTANT_EVENT_VECTOR_ENABLED', True):
             self.stdout.write(self.style.WARNING("WARNING: IMPORTANT_EVENT_VECTOR_ENABLED is False in settings!"))
 
-        # 1. Initialize Milvus collection connection
-        self.stdout.write(self.style.NOTICE("Connecting to Milvus..."))
-        collection = _get_milvus_collection()
-        if collection is None:
-            self.stderr.write(self.style.ERROR("Error: Failed to connect to Milvus or pymilvus is not installed."))
+        # 1. Resolve the active vector backend
+        backend = get_vector_backend()
+        self.stdout.write(self.style.NOTICE(f"Active vector backend: {backend.name}"))
+        if backend.name == 'none':
+            self.stderr.write(self.style.ERROR(
+                "Error: no usable vector backend (VECTOR_BACKEND resolved to 'none'). "
+                "Install pgvector or configure Milvus."
+            ))
+            return
+        if not backend.is_available():
+            self.stderr.write(self.style.ERROR(
+                f"Error: vector backend '{backend.name}' is not available "
+                f"(check connection / migration / dependency)."
+            ))
             return
 
-        collection_name = collection.name
-        alias = 'important_event_memory'
-
-        # 2. Clean Milvus collection if requested
+        # 2. Optionally wipe existing vectors
         if clean:
-            self.stdout.write(self.style.WARNING(f"Dropping collection '{collection_name}' in Milvus..."))
-            try:
-                from pymilvus import utility
-                if utility.has_collection(collection_name, using=alias):
-                    utility.drop_collection(collection_name, using=alias)
-                    self.stdout.write(self.style.SUCCESS(f"Successfully dropped collection '{collection_name}'."))
-                else:
-                    self.stdout.write(self.style.NOTICE(f"Collection '{collection_name}' does not exist, nothing to drop."))
-                
-                # Re-fetch/re-create the collection schema and indexes
-                self.stdout.write(self.style.NOTICE(f"Re-creating and loading collection '{collection_name}'..."))
-                collection = _get_milvus_collection()
-                if collection is None:
-                    self.stderr.write(self.style.ERROR("Error: Failed to re-create/load Milvus collection after drop."))
-                    return
-            except Exception as e:
-                self.stderr.write(self.style.ERROR(f"Failed to drop/recreate Milvus collection: {e}"))
+            self.stdout.write(self.style.WARNING(f"Cleaning existing vectors in backend '{backend.name}'..."))
+            if backend.reset():
+                self.stdout.write(self.style.SUCCESS("Vectors cleaned."))
+            else:
+                self.stderr.write(self.style.ERROR("Failed to clean existing vectors."))
                 return
 
         # 3. Retrieve events from Postgres
@@ -84,12 +76,11 @@ class Command(BaseCommand):
                 self.stderr.write(self.style.ERROR(f"Error: Character not found with UID: {character_uid}"))
                 return
 
-        # If clean was specified, or if force was specified, we should reset milvus_synced to False in SQL
-        # so that it is clear they are being fully re-synced.
+        # If clean or force, reset synced flags so events get fully re-synced.
         if clean or force:
-            self.stdout.write(self.style.NOTICE("Resetting milvus_synced flags in database..."))
+            self.stdout.write(self.style.NOTICE("Resetting synced flags in database..."))
             count = events.update(milvus_synced=False, milvus_synced_at=None)
-            self.stdout.write(self.style.NOTICE(f"Reset milvus_synced=False for {count} events."))
+            self.stdout.write(self.style.NOTICE(f"Reset synced flag for {count} events."))
         else:
             # Otherwise, only sync events that are currently not synced
             events = events.filter(milvus_synced=False)
@@ -101,9 +92,8 @@ class Command(BaseCommand):
 
         self.stdout.write(self.style.NOTICE(f"Starting rebuild sync for {total_count} events in batches of {batch_size}..."))
 
-        # Convert to list/iterator for batching
         event_list = list(events.order_by('date'))
-        
+
         success_count = 0
         for i in range(0, total_count, batch_size):
             batch = event_list[i:i + batch_size]
@@ -116,5 +106,5 @@ class Command(BaseCommand):
                 self.stderr.write(self.style.ERROR(f"  Failed syncing batch starting at index {i}: {e}"))
 
         self.stdout.write(self.style.SUCCESS(
-            f"Done! Rebuilt Milvus memory index. Synced {success_count}/{total_count} events."
+            f"Done! Rebuilt vector memory index via '{backend.name}'. Synced {success_count}/{total_count} events."
         ))

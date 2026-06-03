@@ -13,6 +13,7 @@ from django.utils import timezone
 
 from apps.characters.models import DailyReport, ImportantEvent
 from .llm_utils import extract_text_from_response
+from .vector_backends import get_vector_backend
 
 
 logger = logging.getLogger(__name__)
@@ -406,72 +407,14 @@ def _ollama_embed(text):
     return None
 
 
-def _get_milvus_collection():
-    try:
-        from pymilvus import Collection, CollectionSchema, DataType, FieldSchema, connections, utility
-    except ImportError:
-        logger.info("pymilvus is not installed; vector memory index is disabled")
-        return None
-
-    collection_name = getattr(settings, 'MILVUS_IMPORTANT_EVENT_COLLECTION', 'important_events')
-    alias = 'important_event_memory'
-    uri = getattr(settings, 'MILVUS_URI', '')
-    token = getattr(settings, 'MILVUS_TOKEN', '')
-    db_name = getattr(settings, 'MILVUS_DB_NAME', '')
-
-    try:
-        if not connections.has_connection(alias):
-            if uri:
-                kwargs = {'alias': alias, 'uri': uri}
-                if token:
-                    kwargs['token'] = token
-                if db_name:
-                    kwargs['db_name'] = db_name
-                connections.connect(**kwargs)
-            else:
-                kwargs = {
-                    'alias': alias,
-                    'host': getattr(settings, 'MILVUS_HOST', '127.0.0.1'),
-                    'port': str(getattr(settings, 'MILVUS_PORT', '19530')),
-                }
-                if db_name:
-                    kwargs['db_name'] = db_name
-                connections.connect(**kwargs)
-
-        if not utility.has_collection(collection_name, using=alias):
-            dim = int(getattr(settings, 'OLLAMA_EMBED_DIM', 1024))
-            fields = [
-                FieldSchema(name='event_id', dtype=DataType.VARCHAR, max_length=32, is_primary=True),
-                FieldSchema(name='character_uid', dtype=DataType.VARCHAR, max_length=64),
-                FieldSchema(name='event_date', dtype=DataType.VARCHAR, max_length=10),
-                FieldSchema(name='importance_score', dtype=DataType.INT64),
-                FieldSchema(name='embedding', dtype=DataType.FLOAT_VECTOR, dim=dim),
-            ]
-            schema = CollectionSchema(fields=fields, description='StillAlive important event memory')
-            collection = Collection(collection_name, schema=schema, using=alias)
-            collection.create_index(
-                field_name='embedding',
-                index_params={'metric_type': 'COSINE', 'index_type': 'HNSW', 'params': {'M': 16, 'efConstruction': 200}},
-            )
-        else:
-            collection = Collection(collection_name, using=alias)
-
-        collection.load()
-        return collection
-    except Exception as exc:
-        logger.warning("Milvus collection unavailable: %s", exc)
-        return None
-
-
 def sync_events_to_milvus(events):
     """
-    批量同步多个事件到 Milvus。
+    批量同步多个事件到当前向量后端（Milvus / pgvector）。
+
+    embedding 在此处统一通过 Ollama 生成，后端只负责写入向量。
+    函数名保持兼容（历史调用方较多）。
     """
     if not events or not getattr(settings, 'IMPORTANT_EVENT_VECTOR_ENABLED', True):
-        return 0
-
-    collection = _get_milvus_collection()
-    if collection is None:
         return 0
 
     # 1. 准备待向量化的文本列表
@@ -482,7 +425,7 @@ def sync_events_to_milvus(events):
         if txt:
             texts.append(txt)
             valid_events.append(event)
-    
+
     if not texts:
         return 0
 
@@ -493,42 +436,9 @@ def sync_events_to_milvus(events):
         logger.error("Batch embedding failed or returned mismatched results")
         return 0
 
-    # 3. 准备 Milvus 写入数据
-    ids = []
-    char_ids = []
-    dates = []
-    scores = []
-    embs = []
-    
-    for event, embedding in zip(valid_events, all_embeddings):
-        ids.append(str(event.id))
-        char_ids.append(str(event.character_id))
-        dates.append(event.date.isoformat())
-        scores.append(int(event.importance_score))
-        embs.append(embedding)
-
-    try:
-        # 先删除旧的（防止重复）
-        id_str = ", ".join([f'"{i}"' for i in ids])
-        collection.delete(f'event_id in [{id_str}]')
-        
-        # 批量插入
-        collection.insert([ids, char_ids, dates, scores, embs])
-        collection.flush()
-        
-        # 更新数据库状态
-        with transaction.atomic():
-            now = timezone.now()
-            for event in valid_events:
-                event.milvus_synced = True
-                event.milvus_synced_at = now
-                event.save(update_fields=['milvus_synced', 'milvus_synced_at'])
-        
-        logger.info(f"Successfully synced {len(valid_events)} events to Milvus")
-        return len(valid_events)
-    except Exception as exc:
-        logger.warning("Batch sync to Milvus failed: %s", exc)
-        return 0
+    # 3. 交给当前向量后端写入
+    items = list(zip(valid_events, all_embeddings))
+    return get_vector_backend().upsert(items)
 
 
 def sync_event_to_milvus(event):
@@ -539,16 +449,7 @@ def sync_event_to_milvus(event):
 
 
 def delete_event_from_milvus(event_id):
-    collection = _get_milvus_collection()
-    if collection is None:
-        return False
-    try:
-        collection.delete(f'event_id == "{event_id}"')
-        collection.flush()
-        return True
-    except Exception as exc:
-        logger.warning("Failed to delete important event %s from Milvus: %s", event_id, exc)
-        return False
+    return get_vector_backend().delete(event_id)
 
 
 def _format_top_items(value, limit=8):
@@ -729,32 +630,11 @@ def _rewrite_retrieval_query_with_llm(character, aggregated_data):
 
 
 def _search_milvus_event_ids(character, query_text, recall):
+    """对 query 文本做 embedding 后交给当前向量后端检索，返回 {event_id: 相似度}。"""
     embedding = _ollama_embed(query_text)
     if not embedding:
         return {}
-
-    collection = _get_milvus_collection()
-    if collection is None:
-        return {}
-
-    try:
-        results = collection.search(
-            data=[embedding],
-            anns_field='embedding',
-            param={'metric_type': 'COSINE', 'params': {'ef': max(64, recall)}},
-            limit=recall,
-            expr=f'character_uid == "{character.uid}"',
-            output_fields=['event_id'],
-        )
-    except Exception as exc:
-        logger.warning("Milvus important event search failed: %s", exc)
-        return {}
-
-    scores = {}
-    for hit in results[0]:
-        event_id = hit.entity.get('event_id') if hit.entity else hit.id
-        scores[int(event_id)] = float(hit.distance)
-    return scores
+    return get_vector_backend().search(character, embedding, recall)
 
 
 def _recency_score(event, target_date):
@@ -870,7 +750,8 @@ def check_important_event_infra():
         'memory_enabled': getattr(settings, 'IMPORTANT_EVENT_MEMORY_ENABLED', True),
         'vector_enabled': getattr(settings, 'IMPORTANT_EVENT_VECTOR_ENABLED', True),
         'ollama_ok': None,
-        'milvus_ok': None,
+        'vector_backend': None,
+        'vector_ok': None,
     }
 
     if not result['memory_enabled']:
@@ -897,21 +778,18 @@ def check_important_event_infra():
             getattr(settings, 'OLLAMA_EMBED_MODEL', ''),
         )
 
-    collection = _get_milvus_collection()
-    result['milvus_ok'] = collection is not None
-    if result['milvus_ok']:
-        logger.info(
-            "Important event memory Milvus check OK: collection=%s",
-            getattr(settings, 'MILVUS_IMPORTANT_EVENT_COLLECTION', 'important_events'),
-        )
+    backend = get_vector_backend()
+    result['vector_backend'] = backend.name
+    result['vector_ok'] = backend.is_available()
+    if result['vector_ok']:
+        logger.info("Important event memory vector backend check OK: backend=%s", backend.name)
+    elif backend.name == 'none':
+        logger.info("Vector backend resolved to 'none'; semantic retrieval disabled, DB fallback active")
     else:
         logger.warning(
-            "Important event memory Milvus check failed: host=%s port=%s uri=%s db_name=%s collection=%s",
-            getattr(settings, 'MILVUS_HOST', ''),
-            getattr(settings, 'MILVUS_PORT', ''),
-            getattr(settings, 'MILVUS_URI', ''),
-            getattr(settings, 'MILVUS_DB_NAME', ''),
-            getattr(settings, 'MILVUS_IMPORTANT_EVENT_COLLECTION', ''),
+            "Important event memory vector backend check failed: backend=%s (configured VECTOR_BACKEND=%s)",
+            backend.name,
+            getattr(settings, 'VECTOR_BACKEND', 'auto'),
         )
 
     return result
