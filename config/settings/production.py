@@ -15,6 +15,11 @@ ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', '').split(',') + [
     'alive.ineed.asia'
 ]
 
+# admin 登录是经 HTTPS 反代的 POST，Django 4+ 需要显式信任来源，否则会 403 CSRF。
+CSRF_TRUSTED_ORIGINS = [
+    'https://alive.ineed.asia',
+]
+
 # CORS settings
 CORS_ALLOW_ALL_ORIGINS = True  # 临时允许所有来源，用于测试
 CORS_ALLOW_CREDENTIALS = True

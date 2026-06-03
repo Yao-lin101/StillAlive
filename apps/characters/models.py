@@ -6,6 +6,7 @@ from django.utils import timezone
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.validators import validate_email
+from pgvector.django import VectorField
 
 def get_default_status_config():
     return {
@@ -338,7 +339,12 @@ class ImportantEvent(models.Model):
     evidence = models.JSONField(default=list, blank=True)
     source_hash = models.CharField(max_length=64, blank=True, default='')
     embedding_text = models.TextField(blank=True, default='')
+    # pgvector 后端：embedding 与事件存在同一行；Milvus 后端则不使用此列。
+    # 不固定维度：不同环境可用不同 embedding 模型（如 dev 768 / prod 1024），
+    # 同一迁移即可通用。代价是无法建 HNSW 索引——个人数据量走精确搜索即可。
+    embedding = VectorField(null=True, blank=True)
     is_active = models.BooleanField(default=True)
+    # 通用「向量已建索引」标记（Milvus / pgvector 共用）。
     milvus_synced = models.BooleanField(default=False)
     milvus_synced_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -491,3 +497,76 @@ class QQMessage(models.Model):
             return f"[{self.date}] 群消息: {len(self.message_data)}个消息块"
         else:
             return f"[{self.date}] 私聊消息: {len(self.message_data)}个消息块"
+
+
+class EmbeddingConfig(models.Model):
+    """
+    全局嵌入模型配置（单例，pk 固定为 1）。
+
+    取代原先散落在环境变量里的 OLLAMA_* 设置：运行时以本表为准，
+    首次访问时自动用现有 settings 播种，保证老部署平滑过渡。
+    """
+    PROVIDER_OLLAMA = 'ollama'
+    PROVIDER_OPENAI = 'openai'
+    PROVIDER_CHOICES = [
+        (PROVIDER_OLLAMA, 'Ollama'),
+        (PROVIDER_OPENAI, 'OpenAI 兼容'),
+    ]
+
+    provider = models.CharField(
+        max_length=20, choices=PROVIDER_CHOICES, default=PROVIDER_OLLAMA,
+        help_text='嵌入服务类型',
+    )
+    base_url = models.CharField(
+        max_length=255, default='http://127.0.0.1:11434',
+        help_text='Ollama 形如 http://127.0.0.1:11434；OpenAI 兼容形如 https://api.openai.com/v1',
+    )
+    api_key = models.CharField(
+        max_length=255, blank=True, default='',
+        help_text='OpenAI 兼容端点的密钥；Ollama 可留空。明文存储，请仅在受信任的自托管环境使用。',
+    )
+    model = models.CharField(
+        max_length=100, default='nomic-embed-text',
+        help_text='嵌入模型名，如 nomic-embed-text / mxbai-embed-large / text-embedding-3-small',
+    )
+    dimensions = models.PositiveIntegerField(
+        default=768,
+        help_text='向量维度。用于 Milvus 建表与 OpenAI dimensions 参数；pgvector 列不固定维度。'
+                  '⚠️ 改动维度/模型后必须点「重建向量」，否则旧向量与新查询维度不一致会导致检索失效。',
+    )
+    max_chars = models.PositiveIntegerField(
+        default=900, help_text='单条文本送入嵌入前的截断上限',
+    )
+    timeout = models.PositiveIntegerField(
+        default=60, help_text='单次嵌入请求超时（秒）',
+    )
+    is_active = models.BooleanField(default=True, help_text='关闭则停用语义检索，退回元数据兜底')
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = '嵌入模型配置'
+        verbose_name_plural = '嵌入模型配置'
+
+    def __str__(self):
+        return f"EmbeddingConfig({self.provider}:{self.model})"
+
+    def save(self, *args, **kwargs):
+        self.pk = 1  # 强制单例
+        super().save(*args, **kwargs)
+
+    @classmethod
+    def _defaults_from_settings(cls):
+        from django.conf import settings
+        return {
+            'provider': cls.PROVIDER_OLLAMA,
+            'base_url': getattr(settings, 'OLLAMA_BASE_URL', 'http://127.0.0.1:11434'),
+            'model': getattr(settings, 'OLLAMA_EMBED_MODEL', 'nomic-embed-text'),
+            'dimensions': int(getattr(settings, 'OLLAMA_EMBED_DIM', 768)),
+            'max_chars': int(getattr(settings, 'OLLAMA_EMBED_MAX_CHARS', 900)),
+        }
+
+    @classmethod
+    def load(cls):
+        """返回单例配置；不存在时用当前 settings 播种创建。"""
+        obj, _ = cls.objects.get_or_create(pk=1, defaults=cls._defaults_from_settings())
+        return obj
