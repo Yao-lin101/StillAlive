@@ -1,6 +1,8 @@
 # 使用 Python 3.11 作为基础镜像
 FROM python:3.11-slim
 
+RUN sed -i 's|deb.debian.org|mirrors.aliyun.com|g' \
+    /etc/apt/sources.list.d/debian.sources
 # 设置工作目录
 WORKDIR /app
 
@@ -13,10 +15,10 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 # 安装系统依赖
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
-        default-libmysqlclient-dev \
-        pkg-config \
-        build-essential \
-        netcat-traditional \
+    default-libmysqlclient-dev \
+    pkg-config \
+    build-essential \
+    netcat-traditional \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/* \
     && pip config set global.index-url https://mirrors.aliyun.com/pypi/simple/ \
