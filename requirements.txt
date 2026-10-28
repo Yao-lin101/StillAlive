@@ -1,4 +1,7 @@
-anthropic==0.45.2
+langchain-core==1.7.0
+langchain-anthropic==1.7.7
+langchain-google-genai==4.4.2
+langchain-openai==1.7.3
 asgiref==3.8.1
 celery==5.3.6
 Django==5.1.6

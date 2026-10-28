@@ -1,0 +1,42 @@
+{% extends "admin/change_form.html" %}
+{% load admin_urls %}
+
+{% block content_title %}{% endblock %}
+{% block content_subtitle %}{% endblock %}
+{% block object-tools %}{% endblock %}
+
+{% block content %}
+<div class="llm-provider-layout" data-provider-workspace>
+  <aside class="llm-provider-sources" aria-label="供应商列表">
+    <div class="llm-provider-sources-heading">
+      <h2>供应商</h2>
+      {% if can_add_provider %}<a href="{% url 'admin:characters_llmprovider_add' %}" class="llm-provider-add">＋ 新增</a>{% endif %}
+    </div>
+    <input type="search" class="llm-provider-search" data-provider-search aria-label="搜索供应商" placeholder="搜索供应商…">
+    <nav class="llm-provider-source-list">
+      {% for provider in provider_sources %}
+        <a href="{% url 'admin:characters_llmprovider_change' provider.pk %}" class="llm-provider-source{% if current_provider.pk == provider.pk %} is-current{% endif %}"{% if current_provider.pk == provider.pk %} aria-current="page"{% endif %} data-provider-source>
+          <span class="llm-provider-source-name">{{ provider.name }}</span>
+          <span class="llm-provider-source-url">{{ provider.base_url|default:"官方默认地址" }}</span>
+          <span class="llm-provider-source-meta">{{ provider.get_api_type_display }} · {{ provider.model_count }} 个模型{% if not provider.is_active %} · 已停用{% endif %}</span>
+        </a>
+      {% empty %}
+        <p class="llm-provider-empty">尚未配置供应商</p>
+      {% endfor %}
+    </nav>
+  </aside>
+  <section class="llm-provider-detail" aria-label="供应商及其模型">
+    <header class="llm-provider-detail-heading">
+      <div>
+        <h1>{% if current_provider %}{{ current_provider.name }}{% else %}新增供应商{% endif %}</h1>
+        <p>{% if current_provider %}{{ current_provider.base_url|default:"官方默认地址" }} · {{ current_provider.get_api_type_display }}{% else %}配置连接信息，并在下方添加此供应商的模型。{% endif %}</p>
+      </div>
+      <div class="llm-provider-heading-actions">
+        {% if current_provider %}<a href="{% url 'admin:characters_llmprovider_history' current_provider.pk %}">历史</a>{% endif %}
+        {% if has_change_permission or add %}<button type="submit" form="llmprovider_form" name="_continue" class="button default llm-provider-save">保存配置</button>{% endif %}
+      </div>
+    </header>
+    {{ block.super }}
+  </section>
+</div>
+{% endblock %}

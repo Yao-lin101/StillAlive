@@ -207,7 +207,7 @@ CELERY_TASK_RETRY_POLICY = {
     'interval_max': 0.5,
 }
 
-# Anthropic AI Configuration
+# 仅供历史数据迁移首次导入旧部署配置；运行时以后台的供应商、模型与调用链配置为准。
 ANTHROPIC_API_KEY = os.environ.get('ANTHROPIC_API_KEY', '')
 ANTHROPIC_MODEL = os.environ.get('ANTHROPIC_MODEL', 'claude-3-5-sonnet-20241022')
 ANTHROPIC_BASE_URL = os.environ.get('ANTHROPIC_BASE_URL', None)

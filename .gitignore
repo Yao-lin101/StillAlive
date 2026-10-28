@@ -127,4 +127,8 @@ nginx/*.conf
 # SSL certificates
 *.pem
 *.key
+
+# Django 应用内的静态源码需要随代码发布。
+!apps/characters/static/
+!apps/characters/static/**
 *.crt

@@ -278,12 +278,13 @@ def extract_important_events_for_report(report, force=False):
         persona_context=persona_context,
     )
 
-    from .llm_utils import call_anthropic_api, extract_text_from_response
-    response = call_anthropic_api(
+    from .llm_utils import call_llm_api, extract_text_from_response
+    response = call_llm_api(
         system_prompt=_build_event_extraction_system_prompt(report),
         user_prompt=prompt,
         max_tokens=8192,
-        temperature=0.2
+        temperature=0.2,
+        response_validator=_parse_json_array,
     )
     result_text = extract_text_from_response(response)
     raw_events = _parse_json_array(result_text)
@@ -564,11 +565,12 @@ def _rewrite_retrieval_query_with_llm(character, aggregated_data):
     try:
         system_prompt = _build_query_rewrite_system_prompt(character)
         user_prompt = prompt
-        response = utils.call_anthropic_api(
+        response = utils.call_llm_api(
             system_prompt=system_prompt,
             user_prompt=user_prompt,
             max_tokens=8192,
-            temperature=0.4
+            temperature=0.4,
+            response_validator=utils.validate_json_object,
         )
         result_text = utils.extract_text_from_response(response)
         # 使用更鲁棒的解析

@@ -1,0 +1,18 @@
+<div class="llm-routing-widget" data-llm-routing-widget>
+  <select name="{{ widget.name }}" multiple data-routing-source aria-label="调用模型"{% include "django/forms/widgets/attrs.html" %}>
+    {% for option in widget.ordered_options %}
+      <option value="{{ option.value }}"{% if option.selected %} selected{% endif %}>{{ option.label }}</option>
+    {% endfor %}
+  </select>
+  <div class="llm-routing-editor" data-routing-editor hidden>
+    <select id="{{ widget.attrs.id }}_picker" class="llm-routing-picker" data-routing-picker aria-label="选择模型并加入调用链">
+      <option value="">选择模型并加入调用链…</option>
+      {% for option in widget.ordered_options %}
+        <option value="{{ option.value }}">{{ option.label }}</option>
+      {% endfor %}
+    </select>
+    <ol class="llm-routing-list" data-routing-list aria-label="模型调用顺序"></ol>
+    <p class="llm-routing-empty" data-routing-empty>尚未加入模型，请从上方选择。</p>
+    <span class="llm-routing-status" data-routing-status role="status" aria-live="polite"></span>
+  </div>
+</div>

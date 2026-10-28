@@ -2,7 +2,6 @@ import json
 import logging
 import re
 from django.utils import timezone
-from django.conf import settings
 from . import prompts as pv2
 from .prompts import (
     DEFAULT_V2_CORE_IDENTITY, 
@@ -132,9 +131,6 @@ def analyze_module_structured(
     is_day_ended=False
 ):
     """单模块结构化分析核心函数"""
-    api_key = getattr(settings, 'ANTHROPIC_API_KEY', None)
-    if not api_key: return {"error": "API Key not configured"}
-
     # 1. 准备 Prompts
     system_prompt = _build_module_system_prompt(
         module_key, character_name, persona_info, data_summary, meta_constraints, is_day_ended
@@ -171,11 +167,12 @@ def analyze_module_structured(
 
     # 4. 调用 LLM
     try:
-        response = utils.call_anthropic_api(
+        response = utils.call_llm_api(
             system_prompt=system_prompt,
             user_prompt=user_prompt,
             max_tokens=8192,
-            temperature=0.7
+            temperature=0.7,
+            response_validator=utils.validate_json_object,
         )
         
         result = utils.safe_json_loads(utils.clean_markdown_wrapper(utils.extract_text_from_response(response)))
@@ -205,11 +202,12 @@ def _extract_meta_instructions(private_blocks, data_keys=[]):
         system_prompt = pv2.META_INSTRUCTION_CHECK_SYSTEM
         user_prompt = pv2.META_INSTRUCTION_CHECK_USER.format(private_chat_content=chat_content)
         
-        response_step1 = utils.call_anthropic_api(
+        response_step1 = utils.call_llm_api(
             system_prompt=system_prompt,
             user_prompt=user_prompt,
             max_tokens=8192,
-            temperature=0
+            temperature=0,
+            response_validator=utils.validate_json_object,
         )
         raw_res1 = utils.extract_text_from_response(response_step1)
         print(f"STAGE 1 RAW RESPONSE:\n{raw_res1}")
@@ -229,11 +227,12 @@ def _extract_meta_instructions(private_blocks, data_keys=[]):
                 private_chat_content=chat_content, data_keys=data_keys_str
             )
             print("\n" + "="*30 + " [AUDIT STAGE 2: REDACTION] " + "="*30)
-            response_step2 = utils.call_anthropic_api(
+            response_step2 = utils.call_llm_api(
                 system_prompt=system_prompt,
                 user_prompt=user_prompt,
                 max_tokens=8192,
-                temperature=0
+                temperature=0,
+                response_validator=utils.validate_json_array,
             )
             raw_res2 = utils.extract_text_from_response(response_step2)
             print(f"STAGE 2 RAW RESPONSE:\n{raw_res2}")
