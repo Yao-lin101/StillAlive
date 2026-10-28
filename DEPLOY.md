@@ -206,18 +206,51 @@ Python 依赖默认从官方 PyPI（`https://pypi.org/simple/`）安装，避免
 如部署环境需使用其他源，可在构建时传入 `--build-arg PIP_INDEX_URL=https://你的索引地址/simple/`。
 系统包使用 Debian 官方 HTTPS 源。
 
-`web`、`celery_worker`、`celery_beat` 共用构建代理，默认地址为 `http://172.30.0.4:7897`，
-通过 Docker 预定义的 `HTTP_PROXY` / `HTTPS_PROXY` 及对应小写构建参数供 apt 和 pip 使用，不写入镜像的运行环境。
+`web`、`celery_worker`、`celery_beat` 共用构建代理，Linux 服务器默认使用 `host` 构建网络和 `http://127.0.0.1:7897`。
+此地址对应 Mihomo Compose 的 `7897:7897` 宿主机端口映射。
+Mihomo 位于独立的 `proxy-net` 时，默认构建网络到其容器 IP 的连接可能被跨网络隔离阻断，因此通过宿主机发布端口访问。
+Compose 的服务 `networks` 控制运行容器；构建期间 `RUN` 的网络由 `build.network` 单独控制。
+
+`web`、`celery_worker`、`celery_beat` 运行时同时接入 `stillalive_network` 和已有的外部网络 `proxy-net`。
+容器内可通过 `http://mihomo:7897` 访问同一网络中的代理服务；是否使用代理由应用调用配置决定。
+`proxy-net` 由 Mihomo 部署维护。更新网络配置后，运行 `docker compose up -d web celery_worker celery_beat` 使容器重新创建并接入网络。
+
+代理通过 Docker 预定义的 `HTTP_PROXY` / `HTTPS_PROXY` 及对应小写构建参数供 apt 和 pip 使用，不写入镜像的运行环境。
 为兼容旧版 Docker 构建器，显式提供两种大小写；apt 读取小写 `http_proxy`，旧构建器不会自动补齐该变量。
 可在 `Server/.env` 设置 `BUILD_PROXY` 覆盖地址；设置 `BUILD_PROXY=` 可关闭代理。
-也可以临时直连构建：`BUILD_PROXY= docker compose build web celery_worker celery_beat`。
+也可以临时直连构建：`BUILD_PROXY= BUILD_NETWORK=default docker compose build web celery_worker celery_beat`。
 `BUILD_NO_PROXY` 默认是 `localhost,127.0.0.1,::1`。
-若 Linux 服务器的默认构建网络无法访问该代理（例如代理在另一个 Docker 网络内），可在 `.env` 设置 `BUILD_NETWORK=host` 后重新构建；默认使用 `default` 网络。
+已有 `.env` 中若保存了旧的容器 IP 或 `BUILD_NETWORK=default`，需要更新为以下值；环境变量会覆盖 Compose 默认值：
+
+```dotenv
+BUILD_PROXY=http://127.0.0.1:7897
+BUILD_NETWORK=host
+```
+
+Docker Desktop 等环境可将 `BUILD_NETWORK` 改为 `default`，同时将 `BUILD_PROXY` 改为该构建网络可访问的代理地址，或留空关闭代理。
 这些构建参数只影响 Dockerfile 中的下载；拉取基础镜像或其他服务镜像所需的代理，应在 Docker daemon / BuildKit 中配置。
 
 如果构建日志显示直接连接 `deb.debian.org` 的公网 IP 并超时，优先检查代理是否生效：
 服务器是否已更新 Compose 文件，以及 `BUILD_PROXY` 是否被留空关闭、`BUILD_NO_PROXY` 是否绕过了 Debian 域名。
-若日志显示连接 `172.30.0.4:7897` 超时，则检查构建网络到代理的连通性，并尝试上述 `BUILD_NETWORK=host`。
+若日志仍显示连接旧的 `172.30.0.4:7897`，检查 `.env` 或 shell 中是否仍覆盖了旧地址。
+先在服务器宿主机验证发布端口和代理上游是否可用：
+
+```bash
+curl --noproxy '' --proxy http://127.0.0.1:7897 \
+  --connect-timeout 5 --max-time 20 -I \
+  https://deb.debian.org/debian/dists/trixie/InRelease
+```
+
+如果此命令也失败，先检查 `mihomo` 容器状态及挂载的 `./config/config.yaml`，端口映射不会自动开启 Mihomo 的代理监听。
+其 HTTP 或混合监听端口应为 `7897`，例如：
+
+```yaml
+mixed-port: 7897
+allow-lan: true
+bind-address: '*'
+```
+
+若宿主机发布端口仅用于本机构建，可将 Mihomo Compose 的端口映射写为 `127.0.0.1:7897:7897`。
 `apt-get update` 已开启 `--error-on=any`，索引下载失败会直接终止构建，避免后续出现误导性的 `Unable to locate package`。
 
 升级时先迁移，再启动新代码的 Web 和 Celery：

@@ -1,15 +1,16 @@
+# Linux 服务器通过 host 构建网络访问 Mihomo 发布到宿主机的端口。
 # 三个应用镜像共用构建代理；BUILD_PROXY= 可关闭代理。
 x-app-build: &app-build
   context: .
   dockerfile: Dockerfile
-  network: ${BUILD_NETWORK:-default}
+  network: ${BUILD_NETWORK:-host}
   args:
     # apt 读取小写代理变量；旧构建器不会自动补齐大小写。
-    HTTP_PROXY: ${BUILD_PROXY-http://172.30.0.4:7897}
-    HTTPS_PROXY: ${BUILD_PROXY-http://172.30.0.4:7897}
+    HTTP_PROXY: ${BUILD_PROXY-http://127.0.0.1:7897}
+    HTTPS_PROXY: ${BUILD_PROXY-http://127.0.0.1:7897}
     NO_PROXY: ${BUILD_NO_PROXY:-localhost,127.0.0.1,::1}
-    http_proxy: ${BUILD_PROXY-http://172.30.0.4:7897}
-    https_proxy: ${BUILD_PROXY-http://172.30.0.4:7897}
+    http_proxy: ${BUILD_PROXY-http://127.0.0.1:7897}
+    https_proxy: ${BUILD_PROXY-http://127.0.0.1:7897}
     no_proxy: ${BUILD_NO_PROXY:-localhost,127.0.0.1,::1}
 
 services:
@@ -42,6 +43,7 @@ services:
       - redis
     networks:
       - stillalive_network
+      - proxy-net
 
   celery_worker:
     build: *app-build
@@ -67,6 +69,7 @@ services:
       - db
     networks:
       - stillalive_network
+      - proxy-net
 
   celery_beat:
     build: *app-build
@@ -93,6 +96,7 @@ services:
       - db
     networks:
       - stillalive_network
+      - proxy-net
 
   db:
     # 使用自带 pgvector 扩展的镜像（用于长期记忆的向量检索降级方案）。
@@ -137,4 +141,7 @@ volumes:
 networks:
   stillalive_network:
     name: stillalive_network
+    external: true
+  proxy-net:
+    name: proxy-net
     external: true
