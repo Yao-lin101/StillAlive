@@ -4,6 +4,7 @@
     <h2>已配置的模型 <span class="llm-provider-count" data-model-count></span></h2>
     <div class="llm-provider-model-tools">
       <input type="search" placeholder="搜索模型或 ID…" aria-label="搜索当前供应商的模型" data-model-search>
+      {% if inline_admin_formset.has_add_permission %}<button type="button" class="button" data-fetch-models="{{ model_discovery_url }}" hidden>获取模型列表</button>{% endif %}
       {% if inline_admin_formset.has_add_permission %}<button type="button" class="button" data-add-model hidden>＋ 添加模型</button>{% endif %}
     </div>
   </div>
@@ -55,4 +56,21 @@
     </div>
   {% endfor %}
   <p class="llm-provider-empty" data-model-empty>此供应商尚未配置模型，点击“添加模型”开始配置。</p>
+  {% if inline_admin_formset.has_add_permission %}
+  <section class="llm-provider-discovery" aria-label="供应商可用模型" data-model-discovery hidden>
+    <div class="llm-provider-models-heading">
+      <h2>可用模型 <span class="llm-provider-count" data-discovery-count>0</span></h2>
+      <div class="llm-provider-model-tools">
+        <input type="search" placeholder="搜索可用模型或 ID…" aria-label="搜索拉取的可用模型" data-discovery-search>
+        <button type="button" class="button" data-add-selected disabled>添加所选模型</button>
+        <button type="button" class="button" data-clear-discovery>清空列表</button>
+      </div>
+    </div>
+    <p class="llm-provider-discovery-note">列表仅保留在当前页面。选中后添加到上方配置列表，点击“保存配置”才会保存；新增模型不会自动加入调用链。</p>
+    <p class="llm-provider-discovery-status" data-discovery-status role="status" aria-live="polite"></p>
+    <label class="llm-provider-select-visible"><input type="checkbox" data-select-visible disabled> 全选当前结果</label>
+    <div class="llm-provider-discovery-list" data-discovery-list></div>
+    <p class="llm-provider-empty" data-discovery-empty hidden>没有匹配的可用模型。</p>
+  </section>
+  {% endif %}
 </div>

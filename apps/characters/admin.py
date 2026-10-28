@@ -40,6 +40,12 @@ class LLMProviderAdminForm(forms.ModelForm):
         return data
 
 
+class LLMProviderDiscoveryForm(LLMProviderAdminForm):
+    class Meta:
+        model = LLMProvider
+        fields = ('api_type', 'base_url', 'api_key', 'timeout', 'max_retries')
+
+
 class LLMModelInlineFormSet(BaseInlineFormSet):
     def clean(self):
         for form in self.forms:
@@ -124,6 +130,10 @@ class LLMProviderAdmin(admin.ModelAdmin):
 
     def get_urls(self):
         return [
+            path('discover-models/', self.admin_site.admin_view(self.discover_models_view),
+                 name='characters_llmprovider_discover_models_add'),
+            path('<int:provider_id>/discover-models/', self.admin_site.admin_view(self.discover_models_view),
+                 name='characters_llmprovider_discover_models'),
             path('<int:provider_id>/models/<int:model_id>/test/',
                  self.admin_site.admin_view(self.test_model_connection_view),
                  name='characters_llmprovider_model_test'),
@@ -145,7 +155,39 @@ class LLMProviderAdmin(admin.ModelAdmin):
         )
         context['can_add_provider'] = self.has_add_permission(request)
         context['current_provider'] = obj
+        context['model_discovery_url'] = reverse(
+            'admin:characters_llmprovider_discover_models' if obj else 'admin:characters_llmprovider_discover_models_add',
+            args=[obj.pk] if obj else None,
+        )
         return super().render_change_form(request, context, add, change, form_url, obj)
+
+    def discover_models_view(self, request, provider_id=None):
+        from .services.llm_model_catalog import LLMModelDiscoveryError, fetch_provider_models
+
+        if request.method != 'POST':
+            return HttpResponseNotAllowed(['POST'])
+        if provider_id is None:
+            if not self.has_add_permission(request):
+                raise PermissionDenied
+            provider = LLMProvider(name='未保存的供应商')
+        else:
+            provider = get_object_or_404(self.get_queryset(request), pk=provider_id)
+            if not self.has_change_permission(request, provider):
+                raise PermissionDenied
+        saved_key = provider.api_key
+        form = LLMProviderDiscoveryForm(data=request.POST, instance=provider)
+        if not form.is_valid():
+            return JsonResponse({'ok': False, 'message': '连接配置有误，请检查后重试。',
+                                 'errors': form.errors.get_json_data()}, status=400)
+        try:
+            models = fetch_provider_models(form.instance)
+        except Exception as exc:
+            message = str(exc) if isinstance(exc, LLMModelDiscoveryError) else '获取模型列表失败，请检查供应商连接后重试。'
+            for key in (saved_key, form.instance.api_key):
+                if key:
+                    message = message.replace(key, '***')
+            return JsonResponse({'ok': False, 'message': message}, status=502)
+        return JsonResponse({'ok': True, 'models': models})
 
     def test_model_connection_view(self, request, provider_id, model_id):
         if request.method != 'POST':
@@ -167,7 +209,7 @@ class LLMProviderAdmin(admin.ModelAdmin):
                                    'timeout', 'max_retries', 'updated_at'),
                             'classes': ('collapse',) if obj is not None else ()}),
         ]
-        if not self.has_change_permission(request, obj):
+        if not self.has_change_permission(request, obj) and not (obj is None and self.has_add_permission(request)):
             return [
                 (title, {**options, 'fields': tuple(
                     'api_key_status' if field == 'api_key' else field
