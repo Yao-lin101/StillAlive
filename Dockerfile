@@ -17,8 +17,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     DJANGO_SETTINGS_MODULE=config.settings.production \
     DEBIAN_FRONTEND=noninteractive
 
-# 安装系统依赖
-RUN apt-get update \
+# 安装系统依赖；索引下载失败时停止，避免继续报找不到软件包。
+RUN apt-get update --error-on=any \
     && apt-get install -y --no-install-recommends \
     default-libmysqlclient-dev \
     pkg-config \

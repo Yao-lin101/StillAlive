@@ -207,12 +207,18 @@ Python 依赖默认从官方 PyPI（`https://pypi.org/simple/`）安装，避免
 系统包使用 Debian 官方 HTTPS 源。
 
 `web`、`celery_worker`、`celery_beat` 共用构建代理，默认地址为 `http://172.30.0.4:7897`，
-通过 Docker 预定义的 `HTTP_PROXY` / `HTTPS_PROXY` 构建参数供 apt 和 pip 使用，不写入镜像的运行环境。
+通过 Docker 预定义的 `HTTP_PROXY` / `HTTPS_PROXY` 及对应小写构建参数供 apt 和 pip 使用，不写入镜像的运行环境。
+为兼容旧版 Docker 构建器，显式提供两种大小写；apt 读取小写 `http_proxy`，旧构建器不会自动补齐该变量。
 可在 `Server/.env` 设置 `BUILD_PROXY` 覆盖地址；设置 `BUILD_PROXY=` 可关闭代理。
 也可以临时直连构建：`BUILD_PROXY= docker compose build web celery_worker celery_beat`。
 `BUILD_NO_PROXY` 默认是 `localhost,127.0.0.1,::1`。
 若 Linux 服务器的默认构建网络无法访问该代理（例如代理在另一个 Docker 网络内），可在 `.env` 设置 `BUILD_NETWORK=host` 后重新构建；默认使用 `default` 网络。
 这些构建参数只影响 Dockerfile 中的下载；拉取基础镜像或其他服务镜像所需的代理，应在 Docker daemon / BuildKit 中配置。
+
+如果构建日志显示直接连接 `deb.debian.org` 的公网 IP 并超时，优先检查代理是否生效：
+服务器是否已更新 Compose 文件，以及 `BUILD_PROXY` 是否被留空关闭、`BUILD_NO_PROXY` 是否绕过了 Debian 域名。
+若日志显示连接 `172.30.0.4:7897` 超时，则检查构建网络到代理的连通性，并尝试上述 `BUILD_NETWORK=host`。
+`apt-get update` 已开启 `--error-on=any`，索引下载失败会直接终止构建，避免后续出现误导性的 `Unable to locate package`。
 
 升级时先迁移，再启动新代码的 Web 和 Celery：
 

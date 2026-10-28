@@ -4,9 +4,13 @@ x-app-build: &app-build
   dockerfile: Dockerfile
   network: ${BUILD_NETWORK:-default}
   args:
+    # apt 读取小写代理变量；旧构建器不会自动补齐大小写。
     HTTP_PROXY: ${BUILD_PROXY-http://172.30.0.4:7897}
     HTTPS_PROXY: ${BUILD_PROXY-http://172.30.0.4:7897}
     NO_PROXY: ${BUILD_NO_PROXY:-localhost,127.0.0.1,::1}
+    http_proxy: ${BUILD_PROXY-http://172.30.0.4:7897}
+    https_proxy: ${BUILD_PROXY-http://172.30.0.4:7897}
+    no_proxy: ${BUILD_NO_PROXY:-localhost,127.0.0.1,::1}
 
 services:
   web:
