@@ -1,0 +1,160 @@
+.llm-routing-widget {
+    box-sizing: border-box;
+    width: min(100%, 1120px);
+}
+
+.llm-routing-widget [hidden] {
+    display: none !important;
+}
+
+.llm-routing-widget select.llm-routing-picker {
+    box-sizing: border-box;
+    width: 100%;
+    max-width: 100%;
+    height: auto;
+    min-height: 42px;
+    margin: 0 0 16px;
+    padding: 10px 12px;
+}
+
+.llm-routing-widget .llm-routing-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.llm-routing-list .llm-routing-row {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    box-sizing: border-box;
+    margin: 0;
+    padding: 14px 16px;
+    border: 1px solid var(--hairline-color, #dce3ed);
+    border-radius: 9px;
+    background: var(--body-bg, #fff);
+    color: var(--body-fg, #172033);
+    list-style: none;
+}
+
+.llm-routing-row.is-dragging {
+    opacity: 0.4;
+}
+
+.llm-routing-row.is-drop-before {
+    box-shadow: 0 -3px 0 var(--link-fg, #4386ff);
+}
+
+.llm-routing-row.is-drop-after {
+    box-shadow: 0 3px 0 var(--link-fg, #4386ff);
+}
+
+.llm-routing-row .llm-routing-badge {
+    flex-shrink: 0;
+    padding: 7px 10px;
+    border: 1px solid var(--hairline-color, #dce3ed);
+    border-radius: 6px;
+    background: var(--darkened-bg, #f2f5f9);
+    color: var(--body-quiet-color, #526079);
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.llm-routing-row:first-child .llm-routing-badge {
+    border-color: var(--link-fg, #4386ff);
+    background: color-mix(in srgb, var(--link-fg, #4386ff) 10%, var(--body-bg, #fff));
+    color: var(--link-fg, #4386ff);
+}
+
+.llm-routing-label {
+    flex: 1;
+    min-width: 0;
+    overflow-wrap: anywhere;
+    font-size: 15px;
+    font-weight: 600;
+    line-height: 1.5;
+}
+
+.llm-routing-actions {
+    display: flex;
+    flex-shrink: 0;
+    gap: 6px;
+}
+
+.llm-routing-widget button.llm-routing-button {
+    display: inline-flex;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    margin: 0;
+    padding: 0;
+    border: 1px solid var(--hairline-color, #dce3ed);
+    border-radius: 6px;
+    background: var(--body-bg, #fff);
+    color: var(--body-quiet-color, #526079);
+    cursor: pointer;
+}
+
+.llm-routing-widget button.llm-routing-handle {
+    width: 24px;
+    border-color: transparent;
+    cursor: grab;
+    touch-action: none;
+    user-select: none;
+}
+
+.llm-routing-widget button.llm-routing-handle:active {
+    cursor: grabbing;
+}
+
+.llm-routing-widget button.llm-routing-button:disabled {
+    opacity: 0.3;
+    cursor: default;
+}
+
+.llm-routing-widget button.llm-routing-button:enabled:hover {
+    border-color: var(--link-fg, #4386ff);
+    color: var(--link-fg, #4386ff);
+}
+
+.llm-routing-widget button.llm-routing-button:focus-visible,
+.llm-routing-widget .llm-routing-picker:focus-visible {
+    outline: 2px solid var(--link-fg, #4386ff);
+    outline-offset: 2px;
+}
+
+.llm-routing-empty {
+    padding: 20px 12px;
+    border: 1px dashed var(--hairline-color, #dce3ed);
+    border-radius: 9px;
+    color: var(--body-quiet-color, #526079);
+}
+
+.llm-routing-status {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+}
+
+@media (max-width: 767px) {
+    .llm-routing-list .llm-routing-row {
+        flex-wrap: wrap;
+        gap: 9px;
+        padding: 12px;
+    }
+
+    .llm-routing-label {
+        flex-basis: calc(100% - 130px);
+    }
+
+    .llm-routing-actions {
+        margin-left: auto;
+    }
+}

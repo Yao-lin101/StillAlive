@@ -1,7 +1,6 @@
 import json
 import logging
 from django.utils import timezone
-from django.conf import settings
 from apps.characters.models import DailyReport, PersonaHistory
 from . import llm_utils as utils
 from .prompts import (
@@ -45,7 +44,7 @@ def _get_raw_data_summary(report):
 
 def update_system_persona(config, yesterday_report_text=None, trigger_type='scheduled', today=None):
     """
-    使用 Anthropic API 更新系统的暗中认知人设
+    使用后台配置的 LLM 更新系统的暗中认知人设
     
     重要设计原则：
     1. 始终使用【原始客观数据】（raw_data）而非风格化日报（markdown）
@@ -59,16 +58,9 @@ def update_system_persona(config, yesterday_report_text=None, trigger_type='sche
     """
     from apps.characters.models import DailyReport, PersonaHistory
     
-    api_key = getattr(settings, 'ANTHROPIC_API_KEY', None)
-    model = getattr(settings, 'ANTHROPIC_MODEL', 'claude-3-5-sonnet-20241022')
-    base_url = getattr(settings, 'ANTHROPIC_BASE_URL', None)
-    
     if today is None:
         today = timezone.localdate()
-    
-    if not api_key:
-        return
-        
+
     try:
         is_first_time = not config.system_inferred_persona
         
@@ -140,11 +132,11 @@ def update_system_persona(config, yesterday_report_text=None, trigger_type='sche
         print(f"\nUser Prompt:\n{user_prompt}")
         print("="*20 + " Persona Analysis Prompt End " + "="*20 + "\n")
         
-        response = utils.call_anthropic_api(
+        response = utils.call_llm_api(
             system_prompt=system_prompt,
             user_prompt=user_prompt,
             max_tokens=8192,
-            temperature=0.4
+            temperature=0.4,
         )
         
         new_persona = utils.extract_text_from_response(response)
@@ -193,7 +185,7 @@ def update_system_persona(config, yesterday_report_text=None, trigger_type='sche
                     'persona_content': final_persona_text,
                     'data_dates': data_dates,
                     'is_first_time': is_first_time,
-                    'model_used': model,
+                    'model_used': response.response_metadata.get('llm_model') or response.response_metadata.get('model_name', ''),
                     'trigger_type': trigger_type,
                 }
             )

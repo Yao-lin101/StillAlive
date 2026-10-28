@@ -4,106 +4,50 @@ import re
 from django.utils import timezone
 from .data_service import ACTIVE_INTERVAL_MAX_GAP
 
-import time
-from django.conf import settings
+from .llm_providers import call_llm_api
 
 logger = logging.getLogger(__name__)
 
 # ── 基础工具函数 (Basic Utilities) ──────────────────────────────────
 
 def extract_text_from_response(response):
-    """
-    安全地从 Anthropic API 的 response 中提取文本，兼容带有 thinking block 的模型。
-    """
-    result_text = None
-    
-    if hasattr(response, 'content'):
-        text_blocks = []
-        for block in response.content:
-            block_type = getattr(block, 'type', 'unknown')
-            
-            if block_type == 'text':
-                if hasattr(block, 'text') and block.text is not None:
-                    text_blocks.append(block.text)
-            
-            # 兼容带有 thinking block 的响应
-            if block_type == 'thinking':
-                pass # 暂不提取推理过程
-                    
-        if text_blocks:
-            # 代理 API 可能会将推理过程作为第一个 text block，将最终回复作为最后一个 text block
-            result_text = text_blocks[-1]
-        
-        if result_text is None:
-            try:
-                # 最后的兜底尝试
-                str_content = str(response.content[-1])
-                match = re.search(r"text='([^']+)'", str_content)
-                if match:
-                    result_text = match.group(1)
-            except Exception:
-                pass
-                
-    if not result_text and hasattr(response, 'text'):
-        result_text = response.text
-        
-    # 过滤可能存在的内置 <think> 标签
-    if result_text:
-        result_text = re.sub(r'<think>.*?</think>', '', result_text, flags=re.DOTALL).strip()
-        
-    return result_text
+    """提取 LangChain 或旧 SDK 响应中的全部正文，忽略思考和工具内容。"""
+    content = response if isinstance(response, str) else getattr(response, 'content', None)
+    text_blocks = []
+    if isinstance(content, str):
+        text_blocks.append(content)
+    elif isinstance(content, list):
+        for block in content:
+            if isinstance(block, str):
+                text_blocks.append(block)
+            elif isinstance(block, dict):
+                if block.get('type') in ('text', 'output_text') and isinstance(block.get('text'), str):
+                    text_blocks.append(block['text'])
+            elif getattr(block, 'type', None) == 'text' and isinstance(getattr(block, 'text', None), str):
+                text_blocks.append(block.text)
+    if not text_blocks:
+        text = getattr(response, 'text', None)
+        if isinstance(text, str):
+            text_blocks.append(text)
+    if not text_blocks:
+        return None
+    text = re.sub(r'<think>.*?</think>', '', ''.join(text_blocks), flags=re.DOTALL).strip()
+    return text or None
 
 
-def call_anthropic_api(system_prompt, user_prompt, max_tokens=8192, temperature=0.7, max_retries=3):
-    """
-    统一的 Anthropic API 调用入口，包含重试和超时逻辑。
-    """
-    api_key = getattr(settings, 'ANTHROPIC_API_KEY', None)
-    if not api_key:
-        return {"error": "API Key not configured"}
+def call_anthropic_api(*args, **kwargs):
+    """兼容旧调用方；实际协议由后台的 LLM 配置决定。"""
+    return call_llm_api(*args, **kwargs)
 
-    import anthropic
-    base_url = getattr(settings, 'ANTHROPIC_BASE_URL', None)
-    model = getattr(settings, 'ANTHROPIC_MODEL', 'claude-3-5-sonnet-20241022')
-    
-    # 建立客户端，显式设置超时
-    client = anthropic.Anthropic(
-        api_key=api_key, 
-        base_url=base_url,
-        timeout=180.0 # 统一 180s 超时
-    ) if base_url else anthropic.Anthropic(api_key=api_key, timeout=180.0)
 
-    retry_count = 0
-    backoff_delay = 2 # 初始退避 2 秒
+def validate_json_object(text):
+    if not isinstance(safe_json_loads(text), dict):
+        raise ValueError('模型未返回有效的 JSON 对象。')
 
-    while retry_count <= max_retries:
-        try:
-            response = client.messages.create(
-                model=model,
-                system=system_prompt,
-                max_tokens=max_tokens,
-                temperature=temperature,
-                messages=[{"role": "user", "content": user_prompt}]
-            )
-            return response
-        except Exception as e:
-            retry_count += 1
-            if retry_count > max_retries:
-                logger.error(f"LLM API call failed after {max_retries} retries: {str(e)}")
-                raise e
-            
-            # 只有特定的错误才重试（超时、500、频率限制等）
-            error_str = str(e).lower()
-            is_retryable = any(kw in error_str for kw in ['timeout', '500', '502', '503', '504', 'overloaded', 'rate_limit'])
-            
-            if is_retryable:
-                logger.warning(f"LLM API call error: {str(e)}. Retrying in {backoff_delay}s... (Attempt {retry_count}/{max_retries})")
-                time.sleep(backoff_delay)
-                backoff_delay *= 2 # 指数退避
-            else:
-                # 非可重试错误（如 400 格式错误）直接抛出
-                logger.error(f"LLM API non-retryable error: {str(e)}")
-                raise e
+
+def validate_json_array(text):
+    if not isinstance(safe_json_loads(text), list):
+        raise ValueError('模型未返回有效的 JSON 数组。')
 
 
 def clean_markdown_wrapper(text):
@@ -146,6 +90,12 @@ def safe_json_loads(text):
     # 预处理：初步清理
     text = clean_markdown_wrapper(text)
     
+    # 优先解析完整 JSON，避免单元素数组被大括号截取策略错误解析成对象。
+    try:
+        return json.loads(text)
+    except (TypeError, json.JSONDecodeError):
+        pass
+
     # 策略 1：精准截取 JSON 核心部分
     try:
         start = text.find('{')

@@ -1,0 +1,76 @@
+{% load i18n %}
+<div class="js-inline-admin-formset inline-group llm-provider-models" id="{{ inline_admin_formset.formset.prefix }}-group" data-inline-type="stacked" data-inline-formset="{{ inline_admin_formset.inline_formset_data }}" data-provider-models>
+  <div class="llm-provider-models-heading">
+    <h2>已配置的模型 <span class="llm-provider-count" data-model-count></span></h2>
+    <div class="llm-provider-model-tools">
+      <input type="search" placeholder="搜索模型或 ID…" aria-label="搜索当前供应商的模型" data-model-search>
+      {% if inline_admin_formset.has_add_permission %}<button type="button" class="button" data-fetch-models="{{ model_discovery_url }}" hidden>获取模型列表</button>{% endif %}
+      {% if inline_admin_formset.has_add_permission %}<button type="button" class="button" data-add-model hidden>＋ 添加模型</button>{% endif %}
+    </div>
+  </div>
+  {{ inline_admin_formset.formset.management_form }}
+  {{ inline_admin_formset.formset.non_form_errors }}
+  {% for inline_admin_form in inline_admin_formset %}
+    <div class="inline-related llm-provider-model{% if inline_admin_form.original %} has_original{% endif %}{% if forloop.last and inline_admin_formset.has_add_permission %} empty-form last-related{% endif %}" id="{{ inline_admin_formset.formset.prefix }}-{% if forloop.last and inline_admin_formset.has_add_permission %}empty{% else %}{{ forloop.counter0 }}{% endif %}" data-provider-model{% if inline_admin_form.original %} data-persisted="true"{% endif %}>
+      <h3 class="llm-provider-model-heading">
+        <span class="llm-provider-model-identity">
+          <span class="inline_label" data-model-title>{{ inline_admin_form.original.model|default:"新模型" }}</span>
+          <span class="llm-provider-model-alias" data-model-alias>{{ inline_admin_form.original.display_name }}</span>
+        </span>
+        <span class="llm-provider-model-actions">
+          {% if inline_admin_formset.has_change_permission or not inline_admin_form.original %}
+            <label class="llm-provider-model-enabled">{{ inline_admin_form.form.is_active }} 启用</label>
+          {% else %}
+            <span>{% if inline_admin_form.original.is_active %}已启用{% else %}已停用{% endif %}</span>
+          {% endif %}
+          {% if inline_admin_form.original and inline_admin_formset.has_change_permission %}
+            <button type="button" class="button" data-test-model="{% url 'admin:characters_llmprovider_model_test' inline_admin_form.original.provider_id inline_admin_form.original.pk %}" title="测试此模型已保存的配置">测试连接</button>
+          {% endif %}
+          <button type="button" class="button" data-model-settings aria-expanded="true">参数</button>
+          {% if inline_admin_formset.has_delete_permission or not inline_admin_form.original %}
+            <button type="button" class="button llm-provider-model-remove" data-delete-model{% if inline_admin_form.original.route_count %} disabled title="模型已加入调用链，请先将它移出调用链再删除"{% endif %}>删除</button>
+          {% endif %}
+          {% if inline_admin_formset.formset.can_delete and inline_admin_formset.has_delete_permission and inline_admin_form.original %}
+            <span class="llm-provider-delete-field">{{ inline_admin_form.deletion_field.field }} {{ inline_admin_form.deletion_field.label_tag }}</span>
+          {% endif %}
+        </span>
+      </h3>
+      <p class="llm-provider-model-result" data-model-result role="status" aria-live="polite"></p>
+      {{ inline_admin_form.form.non_field_errors }}
+      <div class="llm-provider-model-settings" data-model-details>
+        {% for fieldset in inline_admin_form %}
+          <div class="llm-provider-model-fields">
+            {% for line in fieldset %}{% for field in line %}{% if field.field.name != 'is_active' %}
+              <div class="llm-provider-model-field{% if field.errors %} errors{% endif %}">
+                {{ field.errors }}
+                {{ field.label_tag }}
+                {% if field.is_readonly %}<div class="readonly">{{ field.contents }}</div>{% else %}{{ field.field }}{% endif %}
+                {% if field.field.help_text %}<p class="help">{{ field.field.help_text }}</p>{% endif %}
+              </div>
+            {% endif %}{% endfor %}{% endfor %}
+          </div>
+        {% endfor %}
+      </div>
+      {% if inline_admin_form.needs_explicit_pk_field %}{{ inline_admin_form.pk_field.field }}{% endif %}
+      {% if inline_admin_form.fk_field %}{{ inline_admin_form.fk_field.field }}{% endif %}
+    </div>
+  {% endfor %}
+  <p class="llm-provider-empty" data-model-empty>此供应商尚未配置模型，点击“添加模型”开始配置。</p>
+  {% if inline_admin_formset.has_add_permission %}
+  <section class="llm-provider-discovery" aria-label="供应商可用模型" data-model-discovery hidden>
+    <div class="llm-provider-models-heading">
+      <h2>可用模型 <span class="llm-provider-count" data-discovery-count>0</span></h2>
+      <div class="llm-provider-model-tools">
+        <input type="search" placeholder="搜索可用模型或 ID…" aria-label="搜索拉取的可用模型" data-discovery-search>
+        <button type="button" class="button" data-add-selected disabled>添加所选模型</button>
+        <button type="button" class="button" data-clear-discovery>清空列表</button>
+      </div>
+    </div>
+    <p class="llm-provider-discovery-note">列表仅保留在当前页面。选中后添加到上方配置列表，点击“保存配置”才会保存；新增模型不会自动加入调用链。</p>
+    <p class="llm-provider-discovery-status" data-discovery-status role="status" aria-live="polite"></p>
+    <label class="llm-provider-select-visible"><input type="checkbox" data-select-visible disabled> 全选当前结果</label>
+    <div class="llm-provider-discovery-list" data-discovery-list></div>
+    <p class="llm-provider-empty" data-discovery-empty hidden>没有匹配的可用模型。</p>
+  </section>
+  {% endif %}
+</div>

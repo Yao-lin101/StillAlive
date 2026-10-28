@@ -6,7 +6,9 @@ from django.utils import timezone
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.validators import validate_email
+from django.core.validators import MaxValueValidator, MinValueValidator
 from pgvector.django import VectorField
+from urllib.parse import urlsplit
 
 def get_default_status_config():
     return {
@@ -413,7 +415,7 @@ class PersonaHistory(models.Model):
         help_text='是否是首次生成侧写'
     )
     model_used = models.CharField(
-        max_length=100,
+        max_length=255,
         blank=True,
         null=True,
         help_text='使用的 LLM 模型名称'
@@ -497,6 +499,165 @@ class QQMessage(models.Model):
             return f"[{self.date}] 群消息: {len(self.message_data)}个消息块"
         else:
             return f"[{self.date}] 私聊消息: {len(self.message_data)}个消息块"
+
+
+class LLMProvider(models.Model):
+    """供应商的协议、地址、凭据和请求策略；可被多个模型共享。"""
+
+    API_ANTHROPIC = 'anthropic'
+    API_GEMINI = 'gemini'
+    API_OPENAI = 'openai'
+    API_OPENAI_RESPONSES = 'openai_responses'
+    API_CHOICES = [
+        (API_ANTHROPIC, 'Anthropic'),
+        (API_GEMINI, 'Gemini'),
+        (API_OPENAI, 'OpenAI 兼容（Chat Completions）'),
+        (API_OPENAI_RESPONSES, 'OpenAI Responses'),
+    ]
+
+    name = models.CharField('供应商名称', max_length=100, unique=True)
+    api_type = models.CharField('接口类型', max_length=20, choices=API_CHOICES, default=API_ANTHROPIC)
+    base_url = models.CharField(
+        'Base URL', max_length=2048, blank=True, default='',
+        help_text='留空使用官方地址。Anthropic / Gemini 填服务根地址；OpenAI 通常填到 /v1，'
+                  '不要包含 /messages、/chat/completions 或 /responses。支持 HTTP/HTTPS 自建服务。',
+    )
+    api_key = models.CharField(
+        'API Key', max_length=2048, blank=True, default='',
+        help_text='密钥存储在数据库中，仅授权管理员可修改；无鉴权的 OpenAI 自建端点可留空。',
+    )
+    timeout = models.PositiveIntegerField('超时（秒）', default=180, validators=[MinValueValidator(1)])
+    max_retries = models.PositiveSmallIntegerField(
+        '单模型重试次数', default=3, validators=[MaxValueValidator(10)],
+        help_text='当前模型重试耗尽后，按优先级降级到下一模型；0 表示不重试。',
+    )
+    is_active = models.BooleanField('启用', default=True, help_text='关闭后，此供应商的所有模型均不参与调用。')
+    updated_at = models.DateTimeField('更新时间', auto_now=True)
+
+    class Meta:
+        ordering = ['name', 'pk']
+        verbose_name = 'LLM 供应商'
+        verbose_name_plural = 'LLM 供应商'
+
+    def __str__(self):
+        return self.name
+
+    def clean(self):
+        super().clean()
+        self.name = (self.name or '').strip()
+        self.api_key = (self.api_key or '').strip()
+        self.base_url = (self.base_url or '').strip().rstrip('/')
+        errors = {}
+        if not self.name:
+            errors['name'] = '请填写供应商名称。'
+        if self.api_type not in dict(self.API_CHOICES):
+            errors['api_type'] = '不支持的 LLM 接口类型。'
+        if self.base_url:
+            try:
+                url = urlsplit(self.base_url)
+                if (url.scheme not in ('http', 'https') or not url.hostname
+                        or url.username or url.password or url.query or url.fragment):
+                    raise ValueError
+                url.port
+            except ValueError:
+                errors['base_url'] = '请填写有效的 HTTP/HTTPS Base URL，不能包含凭据、查询参数或片段。'
+        key_optional = self.api_type in (self.API_OPENAI, self.API_OPENAI_RESPONSES) and self.base_url
+        if self.is_active and not self.api_key and not key_optional:
+            errors['api_key'] = '启用前请填写 API Key；无鉴权的 OpenAI 自建端点需要填写 Base URL。'
+        if errors:
+            raise ValidationError(errors)
+
+
+class LLMModel(models.Model):
+    """供应商下的模型目录；是否参与自动调用由独立调用链决定。"""
+
+    provider = models.ForeignKey(LLMProvider, on_delete=models.CASCADE, related_name='models', verbose_name='供应商')
+    model = models.CharField('模型 ID', max_length=255, help_text='请求发送给供应商的实际模型名称。')
+    display_name = models.CharField('显示名称', max_length=100, blank=True, default='')
+    max_tokens = models.PositiveIntegerField(
+        '输出 Token 上限', default=8192, validators=[MinValueValidator(1)],
+        help_text='此模型的输出上限；任务自身要求更小时使用较小值。',
+    )
+    temperature = models.FloatField(
+        'Temperature', null=True, blank=True, default=None,
+        validators=[MinValueValidator(0), MaxValueValidator(2)],
+        help_text='留空沿用各任务的温度；填写后覆盖任务温度。Anthropic 范围为 0–1，其余为 0–2。',
+    )
+    is_active = models.BooleanField('启用', default=True, help_text='停用后调用链会跳过此模型；启用不会自动加入调用链。')
+    updated_at = models.DateTimeField('更新时间', auto_now=True)
+
+    class Meta:
+        ordering = ['provider__name', 'model', 'pk']
+        verbose_name = 'LLM 模型'
+        verbose_name_plural = 'LLM 模型'
+        constraints = [
+            models.UniqueConstraint(fields=['provider', 'model'], name='llm_model_unique_per_provider'),
+        ]
+
+    def __str__(self):
+        return f'{self.provider}: {self.display_name or self.model}'
+
+    def clean(self):
+        super().clean()
+        self.model = (self.model or '').strip()
+        if not self.model:
+            raise ValidationError({'model': '请填写模型 ID。'})
+        try:
+            provider = self.provider
+        except LLMProvider.DoesNotExist:
+            return
+        if provider.api_type == LLMProvider.API_ANTHROPIC and self.temperature is not None and self.temperature > 1:
+            raise ValidationError({'temperature': 'Anthropic 的 Temperature 不能超过 1。'})
+
+
+class LLMRoutingConfig(models.Model):
+    """独立的全局调用链；模型目录中的记录不会自动参与调用。"""
+
+    is_active = models.BooleanField('启用调用链', default=True, help_text='关闭后暂停所有自动 LLM 调用。')
+    updated_at = models.DateTimeField('更新时间', auto_now=True)
+
+    class Meta:
+        verbose_name = 'LLM 调用链配置'
+        verbose_name_plural = 'LLM 调用链配置'
+        constraints = [
+            models.CheckConstraint(condition=models.Q(pk=1), name='llm_routing_config_singleton'),
+        ]
+
+    def __str__(self):
+        return '默认 LLM 调用链'
+
+    def clean(self):
+        super().clean()
+        self.pk = 1
+
+    def save(self, *args, **kwargs):
+        self.pk = 1
+        super().save(*args, **kwargs)
+
+
+class LLMRoutingEntry(models.Model):
+    config = models.ForeignKey(
+        LLMRoutingConfig, on_delete=models.CASCADE, related_name='entries', verbose_name='调用链',
+    )
+    model = models.ForeignKey(
+        LLMModel, on_delete=models.PROTECT, related_name='routing_entries', verbose_name='模型',
+        help_text='从所有供应商已配置的模型中选择；未加入调用链的模型不会被自动调用。',
+    )
+    priority = models.PositiveIntegerField(
+        '调用顺序', default=10,
+        help_text='数字越小越先调用；首个可用模型为首选，失败后依次使用后续模型。相同数值按记录 ID 排序。',
+    )
+
+    class Meta:
+        ordering = ['priority', 'pk']
+        verbose_name = '调用链模型'
+        verbose_name_plural = '调用链模型（按调用顺序从小到大执行）'
+        constraints = [
+            models.UniqueConstraint(fields=['config', 'model'], name='llm_routing_model_unique'),
+        ]
+
+    def __str__(self):
+        return f'{self.priority}: {self.model}'
 
 
 class EmbeddingConfig(models.Model):

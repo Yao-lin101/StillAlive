@@ -1,10 +1,15 @@
 # 使用 Python 3.11 作为基础镜像
 FROM python:3.11-slim
 
-RUN sed -i 's|deb.debian.org|mirrors.aliyun.com|g' \
+# 使用基镜像自带的 Debian 官方源，并通过 HTTPS 下载系统包。
+RUN sed -i 's|http://deb.debian.org|https://deb.debian.org|g' \
     /etc/apt/sources.list.d/debian.sources
 # 设置工作目录
 WORKDIR /app
+
+# 默认使用官方 PyPI，避免第三方镜像尚未同步固定版本导致构建失败。
+# 如需其他源，可通过 docker compose build --build-arg PIP_INDEX_URL=... 覆盖。
+ARG PIP_INDEX_URL=https://pypi.org/simple/
 
 # 设置环境变量
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -12,8 +17,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     DJANGO_SETTINGS_MODULE=config.settings.production \
     DEBIAN_FRONTEND=noninteractive
 
-# 安装系统依赖
-RUN apt-get update \
+# 安装系统依赖；索引下载失败时停止，避免继续报找不到软件包。
+RUN apt-get update --error-on=any \
     && apt-get install -y --no-install-recommends \
     default-libmysqlclient-dev \
     pkg-config \
@@ -21,8 +26,7 @@ RUN apt-get update \
     netcat-traditional \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/* \
-    && pip config set global.index-url https://mirrors.aliyun.com/pypi/simple/ \
-    && pip config set global.trusted-host mirrors.aliyun.com \
+    && pip config set global.index-url "$PIP_INDEX_URL" \
     && pip config set global.timeout 300 \
     && pip config set global.retries 5 \
     && pip install --no-cache-dir pip setuptools wheel --upgrade \
@@ -57,4 +61,4 @@ EXPOSE 8000
 ENTRYPOINT ["docker-entrypoint.sh"]
 
 # 默认启动命令（会被 docker-compose 中的 command 覆盖）
-CMD ["gunicorn", "config.wsgi:application", "--config=/app/gunicorn.conf.py"] 
+CMD ["gunicorn", "config.wsgi:application", "--config=/app/gunicorn.conf.py"]
