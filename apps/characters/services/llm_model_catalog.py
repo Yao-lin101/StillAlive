@@ -13,6 +13,14 @@ class LLMModelDiscoveryError(ValueError):
     pass
 
 
+def _page_models(first_page):
+    for page in first_page.iter_pages():
+        items = getattr(page, 'data', None)
+        if not isinstance(items, list):
+            raise LLMModelDiscoveryError('供应商返回了无效的模型列表，请检查 Base URL 和接口协议。')
+        yield from items
+
+
 def _normalize_models(items, *, gemini=False):
     models = {}
     for item in items:
@@ -26,6 +34,8 @@ def _normalize_models(items, *, gemini=False):
         model_id = model_id.strip()
         if gemini:
             model_id = model_id.removeprefix('models/')
+            if not model_id:
+                raise LLMModelDiscoveryError('供应商返回了无效的模型 ID，请检查模型列表接口。')
         name = getattr(item, 'display_name', None)
         models.setdefault(model_id, {
             'id': model_id,
@@ -53,7 +63,7 @@ def fetch_provider_models(provider):
             from anthropic import Anthropic
 
             with Anthropic(base_url=provider.base_url or 'https://api.anthropic.com', **options) as client:
-                return _normalize_models(client.models.list(limit=1000))
+                return _normalize_models(_page_models(client.models.list(limit=1000)))
         if provider.api_type == LLMProvider.API_GEMINI:
             from google import genai
             from google.genai import types
@@ -69,7 +79,7 @@ def fetch_provider_models(provider):
         from openai import OpenAI
 
         with OpenAI(base_url=provider.base_url or 'https://api.openai.com/v1', **options) as client:
-            return _normalize_models(client.models.list())
+            return _normalize_models(_page_models(client.models.list()))
     except LLMModelDiscoveryError:
         raise
     except Exception as exc:

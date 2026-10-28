@@ -183,9 +183,8 @@ class LLMProviderAdmin(admin.ModelAdmin):
             models = fetch_provider_models(form.instance)
         except Exception as exc:
             message = str(exc) if isinstance(exc, LLMModelDiscoveryError) else '获取模型列表失败，请检查供应商连接后重试。'
-            for key in (saved_key, form.instance.api_key):
-                if key:
-                    message = message.replace(key, '***')
+            for key in sorted({key for key in (saved_key, form.instance.api_key) if key}, key=len, reverse=True):
+                message = message.replace(key, '***')
             return JsonResponse({'ok': False, 'message': message}, status=502)
         return JsonResponse({'ok': True, 'models': models})
 
