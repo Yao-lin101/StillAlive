@@ -1,8 +1,16 @@
+# 三个应用镜像共用构建代理；BUILD_PROXY= 可关闭代理。
+x-app-build: &app-build
+  context: .
+  dockerfile: Dockerfile
+  network: ${BUILD_NETWORK:-default}
+  args:
+    HTTP_PROXY: ${BUILD_PROXY-http://172.30.0.4:7897}
+    HTTPS_PROXY: ${BUILD_PROXY-http://172.30.0.4:7897}
+    NO_PROXY: ${BUILD_NO_PROXY:-localhost,127.0.0.1,::1}
+
 services:
   web:
-    build: 
-      context: .
-      dockerfile: Dockerfile
+    build: *app-build
     container_name: stillalive_web
     restart: unless-stopped
     command: gunicorn config.wsgi:application --config=/app/gunicorn.conf.py --worker-class=sync
@@ -32,7 +40,7 @@ services:
       - stillalive_network
 
   celery_worker:
-    build: .
+    build: *app-build
     container_name: stillalive_celery_worker
     restart: unless-stopped
     user: celery
@@ -57,7 +65,7 @@ services:
       - stillalive_network
 
   celery_beat:
-    build: .
+    build: *app-build
     container_name: stillalive_celery_beat
     restart: unless-stopped
     user: celery
@@ -125,4 +133,4 @@ volumes:
 networks:
   stillalive_network:
     name: stillalive_network
-    external: true 
+    external: true

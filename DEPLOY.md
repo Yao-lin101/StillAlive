@@ -202,6 +202,18 @@ Web 和 Celery 不缓存配置，无需为切换模型而重启或重建镜像�
 ### 上线与现有配置迁移
 
 首次安装本次 LangChain 依赖需要重建一次应用镜像。已有部署需迁移到 `0027_llm_routing`；迁移会自动补齐之前尚未应用的版本。
+Python 依赖默认从官方 PyPI（`https://pypi.org/simple/`）安装，避免第三方镜像同步延迟导致固定版本找不到。
+如部署环境需使用其他源，可在构建时传入 `--build-arg PIP_INDEX_URL=https://你的索引地址/simple/`。
+系统包使用 Debian 官方 HTTPS 源。
+
+`web`、`celery_worker`、`celery_beat` 共用构建代理，默认地址为 `http://172.30.0.4:7897`，
+通过 Docker 预定义的 `HTTP_PROXY` / `HTTPS_PROXY` 构建参数供 apt 和 pip 使用，不写入镜像的运行环境。
+可在 `Server/.env` 设置 `BUILD_PROXY` 覆盖地址；设置 `BUILD_PROXY=` 可关闭代理。
+也可以临时直连构建：`BUILD_PROXY= docker compose build web celery_worker celery_beat`。
+`BUILD_NO_PROXY` 默认是 `localhost,127.0.0.1,::1`。
+若 Linux 服务器的默认构建网络无法访问该代理（例如代理在另一个 Docker 网络内），可在 `.env` 设置 `BUILD_NETWORK=host` 后重新构建；默认使用 `default` 网络。
+这些构建参数只影响 Dockerfile 中的下载；拉取基础镜像或其他服务镜像所需的代理，应在 Docker daemon / BuildKit 中配置。
+
 升级时先迁移，再启动新代码的 Web 和 Celery：
 
 ```bash
