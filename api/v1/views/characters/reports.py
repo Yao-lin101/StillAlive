@@ -74,6 +74,7 @@ class DailyReportConfigViewSet(viewsets.ModelViewSet):
             return Response({
                 'is_enabled': False,
                 'visibility': 'private',
+                'public_visible_days': 0,
                 'field_mappings': {},
                 'created_at': None,
                 'updated_at': None
@@ -117,6 +118,16 @@ class DailyReportConfigViewSet(viewsets.ModelViewSet):
                 {'error': f'更新日报配置失败: {str(e)}'},
                 status=status.HTTP_400_BAD_REQUEST
             )
+
+
+def _filter_public_reports(queryset, config):
+    """公开访问只展示未隐藏且处于所选日期范围内的日报。"""
+    queryset = queryset.filter(is_hidden=False)
+    if config.public_visible_days:
+        today = timezone.localdate()
+        start_date = today - timedelta(days=config.public_visible_days - 1)
+        queryset = queryset.filter(date__gte=start_date, date__lte=today)
+    return queryset
 
 
 @api_view(['GET'])
@@ -176,9 +187,9 @@ def get_daily_report_dates(request, code):
         date__lte=end_date
     )
     
-    # 如果不是所有者，过滤掉隐藏的日报
+    # 公开访问受隐藏状态和时间范围限制，所有者可查看全部
     if not is_owner:
-        queryset = queryset.filter(is_hidden=False)
+        queryset = _filter_public_reports(queryset, config)
     
     dates = [report.date.day for report in queryset]
     
@@ -236,19 +247,15 @@ def get_daily_report_detail(request, code):
             status=status.HTTP_404_NOT_FOUND
         )
     
-    # 查询日报
+    # 日期列表和详情共用公开访问限制，防止通过直达链接访问过期日报
+    queryset = DailyReport.objects.filter(character=character)
+    if not is_owner:
+        queryset = _filter_public_reports(queryset, config)
+
     report = get_object_or_404(
-        DailyReport,
-        character=character,
+        queryset,
         date=report_date
     )
-    
-    # 如果不是所有者且日报被隐藏，返回404
-    if not is_owner and report.is_hidden:
-        return Response(
-            {'error': '日报不存在'},
-            status=status.HTTP_404_NOT_FOUND
-        )
     
     from apps.characters.serializers import DailyReportDetailSerializer
     serializer = DailyReportDetailSerializer(report)

@@ -208,6 +208,11 @@ class DailyReportConfig(models.Model):
         ('private', '仅自己可见'),
         ('public', '所有人可见'),
     ]
+    PUBLIC_VISIBLE_DAYS_CHOICES = [
+        (0, '全部'),
+        (3, '近三日'),
+        (7, '近七日'),
+    ]
 
     character = models.OneToOneField(Character, on_delete=models.CASCADE, related_name='daily_report_config')
     is_enabled = models.BooleanField(default=False, help_text='是否启用日报分析')
@@ -216,6 +221,11 @@ class DailyReportConfig(models.Model):
         choices=VISIBILITY_CHOICES,
         default='private',
         help_text='日报可见范围'
+    )
+    public_visible_days = models.PositiveSmallIntegerField(
+        choices=PUBLIC_VISIBLE_DAYS_CHOICES,
+        default=0,
+        help_text='公开日报的时间范围，0 表示全部，近三日和近七日均包含当天'
     )
     field_mappings = models.JSONField(
         default=dict,

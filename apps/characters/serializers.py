@@ -183,6 +183,7 @@ class DailyReportConfigSerializer(serializers.ModelSerializer):
         fields = [
             'is_enabled',
             'visibility',
+            'public_visible_days',
             'field_mappings',
             'persona',
             'ai_persona',
